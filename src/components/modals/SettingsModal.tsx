@@ -11,12 +11,14 @@ import {
   Link2Off,
   Lock,
   RefreshCw,
+  TerminalSquare,
   Unlock,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { checkForUpdate, downloadAndApply } from "../../lib/updater";
+import { FONTS } from "../../lib/fonts";
 import { Modal } from "../ui/Modal";
 import { PasswordInput } from "../ui/PasswordInput";
 import {
@@ -38,6 +40,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const refreshStatus = useStore((s) => s.refreshStatus);
   const setGdriveConnected = useStore((s) => s.setGdriveConnected);
   const setNoPassword = useStore((s) => s.setNoPassword);
+  const localFontId = useStore((s) => s.localFontId);
+  const setLocalFont = useStore((s) => s.setLocalFont);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -321,6 +325,35 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             </button>
           </>
         )}
+      </section>
+
+      <section className="mt-6 border-t border-line pt-5">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-content">
+          <TerminalSquare size={16} className="text-accent" /> Local terminal
+        </h3>
+        <label className="label">Font</label>
+        <select
+          className="input"
+          value={localFontId}
+          onChange={(e) => setLocalFont(e.target.value)}
+          style={{ fontFamily: FONTS.find((f) => f.id === localFontId)?.family }}
+        >
+          {FONTS.map((f) => (
+            <option key={f.id} value={f.id} style={{ fontFamily: f.family }}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+        <p
+          className="mt-2 rounded bg-bg-inset px-2 py-1.5 text-[13px] text-content-muted"
+          style={{ fontFamily: FONTS.find((f) => f.id === localFontId)?.family }}
+        >
+          {`const x = () => { return 0 == 1; }; // 0O1lI`}
+        </p>
+        <p className="mt-2 text-[11px] text-content-faint">
+          Applies to local shell tabs. SSH hosts use the default font (Appearance panel) or their own
+          per-host override.
+        </p>
       </section>
 
       <section className="mt-6 border-t border-line pt-5">

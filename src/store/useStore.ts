@@ -47,6 +47,8 @@ interface StoreState {
   setTerminalTheme: (id: string) => void;
   terminalFontId: string;
   setTerminalFont: (id: string) => void;
+  localFontId: string;
+  setLocalFont: (id: string) => void;
   settingsOpen: boolean;
   setSettingsOpen: (v: boolean) => void;
   // tabs
@@ -138,6 +140,16 @@ export const useStore = create<StoreState>((set, get) => ({
       /* ignore */
     }
     set({ terminalFontId: id });
+  },
+  localFontId:
+    (typeof localStorage !== "undefined" && localStorage.getItem("local-font")) || "jetbrains",
+  setLocalFont: (id) => {
+    try {
+      localStorage.setItem("local-font", id);
+    } catch {
+      /* ignore */
+    }
+    set({ localFontId: id });
   },
   settingsOpen: false,
   setSettingsOpen: (v) => set({ settingsOpen: v }),

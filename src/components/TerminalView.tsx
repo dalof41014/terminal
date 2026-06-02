@@ -40,6 +40,8 @@ export function TerminalView({ tab }: { tab: Tab }) {
   const openHost = useStore((s) => s.openHost);
   const themeId = useStore((s) => s.terminalThemeId);
   const fontId = useStore((s) => s.terminalFontId);
+  const localFontId = useStore((s) => s.localFontId);
+  const resolvedFont = tab.kind === "local" ? localFontId : host?.font || fontId;
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -50,7 +52,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
     if (!el) return;
 
     const term = new Terminal({
-      fontFamily: fontFamilyCss(host?.font || fontId),
+      fontFamily: fontFamilyCss(resolvedFont),
       fontSize: 13,
       lineHeight: 1.3,
       cursorBlink: true,
@@ -174,7 +176,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    term.options.fontFamily = fontFamilyCss(host?.font || fontId);
+    term.options.fontFamily = fontFamilyCss(resolvedFont);
     try {
       fitRef.current?.fit();
       (tab.kind === "local" ? localResize : sshResize)(tab.id, term.cols, term.rows).catch(() => {});
@@ -182,7 +184,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
       /* noop */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fontId, host?.font]);
+  }, [resolvedFont]);
 
   const findNext = (q = query) => q && searchRef.current?.findNext(q, SEARCH_OPTS);
   const findPrev = (q = query) => q && searchRef.current?.findPrevious(q, SEARCH_OPTS);

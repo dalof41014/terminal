@@ -32,6 +32,8 @@ export function HostModal({
   const [color, setColor] = useState(host?.color ?? COLORS[0]);
   const [tags, setTags] = useState((host?.tags ?? []).join(", "));
   const [groupId, setGroupId] = useState(host?.groupId ?? defaultGroupId ?? "");
+  const [jumpHostId, setJumpHostId] = useState(host?.jumpHostId ?? "");
+  const hosts = useStore((s) => s.vault.hosts);
 
   const save = async () => {
     let auth: AuthMethod;
@@ -50,6 +52,7 @@ export function HostModal({
       groupId: groupId || null,
       os: host?.os ?? null,
       tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      jumpHostId: jumpHostId || null,
     };
     try {
       await saveHost(next);
@@ -112,6 +115,19 @@ export function HostModal({
               {g.name}
             </option>
           ))}
+        </select>
+      </Field>
+
+      <Field label="Jump host (bastion)" hint="Tunnel this connection through another saved host.">
+        <select className="input" value={jumpHostId} onChange={(e) => setJumpHostId(e.target.value)}>
+          <option value="">— Direct connection —</option>
+          {hosts
+            .filter((h) => h.id !== host?.id)
+            .map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.label} ({h.username}@{h.address})
+              </option>
+            ))}
         </select>
       </Field>
 

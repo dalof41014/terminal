@@ -73,9 +73,33 @@ export function TerminalView({ tab }: { tab: Tab }) {
     termRef.current = term;
     searchRef.current = searchAddon;
 
-    // Ctrl/Cmd+F opens the in-terminal search bar.
+    // Keyboard shortcuts: copy/paste and in-terminal search.
     term.attachCustomKeyEventHandler((e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && e.type === "keydown") {
+      if (e.type !== "keydown") return true;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+
+      // Ctrl/Cmd+Shift+C → copy selection
+      if (mod && e.shiftKey && key === "c") {
+        const sel = term.getSelection();
+        if (sel) {
+          navigator.clipboard.writeText(sel).catch(() => {});
+          return false;
+        }
+        return true;
+      }
+      // Ctrl/Cmd+Shift+V → paste into the session
+      if (mod && e.shiftKey && key === "v") {
+        navigator.clipboard
+          .readText()
+          .then((t) => {
+            if (t) sshSend(tab.id, t).catch(() => {});
+          })
+          .catch(() => {});
+        return false;
+      }
+      // Ctrl/Cmd+F → search
+      if (mod && !e.shiftKey && key === "f") {
         setSearchOpen(true);
         return false;
       }

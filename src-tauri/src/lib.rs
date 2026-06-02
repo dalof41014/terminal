@@ -249,7 +249,27 @@ async fn gdrive_pull(state: State<'_, AppState>) -> Result<(), String> {
 // ---------- helper: build connection params from a host id ----------
 
 fn params_for(state: &AppState, host_id: &str, cols: u16, rows: u16) -> Result<ConnectParams, String> {
+    params_for_chain(state, host_id, cols, rows, &mut Vec::new())
+}
+
+fn params_for_chain(
+    state: &AppState,
+    host_id: &str,
+    cols: u16,
+    rows: u16,
+    seen: &mut Vec<String>,
+) -> Result<ConnectParams, String> {
+    if seen.iter().any(|h| h == host_id) {
+        return Err("jump host configuration has a cycle".to_string());
+    }
+    seen.push(host_id.to_string());
     let (host, auth) = map_err(state.vault.resolve_host(host_id))?;
+    let jump = match &host.jump_host_id {
+        Some(jid) if !jid.is_empty() => {
+            Some(Box::new(params_for_chain(state, jid, cols, rows, seen)?))
+        }
+        _ => None,
+    };
     Ok(ConnectParams {
         address: host.address,
         port: host.port,
@@ -257,6 +277,7 @@ fn params_for(state: &AppState, host_id: &str, cols: u16, rows: u16) -> Result<C
         auth,
         cols,
         rows,
+        jump,
     })
 }
 

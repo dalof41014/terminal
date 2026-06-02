@@ -48,6 +48,9 @@ pub struct Host {
     pub color: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Optional jump (bastion) host id to tunnel this connection through.
+    #[serde(default)]
+    pub jump_host_id: Option<String>,
 }
 
 fn default_port() -> u16 {

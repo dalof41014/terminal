@@ -77,13 +77,24 @@ pub struct ConnectParams {
     pub auth: ResolvedAuth,
     pub cols: u16,
     pub rows: u16,
+    /// Optional jump (bastion) host to tunnel the connection through.
+    pub jump: Option<Box<ConnectParams>>,
 }
 
+/// Jump-host handles that must be kept alive for the duration of the session.
+type Keepalive = Vec<Handle<ClientHandler>>;
+
 impl SshManager {
-    /// Connect + verify the host key + authenticate. On a brand-new host the
-    /// presented key is remembered (TOFU); on a mismatch the connection is
-    /// refused with a clear warning.
-    async fn connect(&self, p: &ConnectParams) -> anyhow::Result<Handle<ClientHandler>> {
+    /// Connect + verify the host key + authenticate. Connects through a jump
+    /// host first when one is configured. On a brand-new host the presented key
+    /// is remembered (TOFU); on a mismatch the connection is refused.
+    ///
+    /// Returns the target handle plus any upstream jump handles that must stay
+    /// alive (dropping them would tear down the tunnel).
+    async fn connect(
+        &self,
+        p: &ConnectParams,
+    ) -> anyhow::Result<(Handle<ClientHandler>, Keepalive)> {
         let host_key = format!("{}:{}", p.address, p.port);
         let expected = self.vault.known_fingerprint(&host_key);
         let had_expected = expected.is_some();
@@ -94,8 +105,32 @@ impl SshManager {
         };
 
         let config = Arc::new(client::Config::default());
-        let connect_res =
-            client::connect(config, (p.address.as_str(), p.port), handler).await;
+        let mut keepalive: Keepalive = Vec::new();
+
+        let connect_res = if let Some(jump) = &p.jump {
+            // Establish the upstream hop, then open a direct-tcpip channel to the
+            // target and run SSH over that stream.
+            let (jump_handle, chain) = Box::pin(self.connect(jump)).await?;
+            keepalive = chain;
+            match jump_handle
+                .channel_open_direct_tcpip(
+                    p.address.clone(),
+                    p.port as u32,
+                    "127.0.0.1".to_string(),
+                    0,
+                )
+                .await
+            {
+                Ok(channel) => {
+                    let stream = channel.into_stream();
+                    keepalive.push(jump_handle);
+                    client::connect_stream(config, stream, handler).await
+                }
+                Err(e) => anyhow::bail!("failed to open channel on jump host: {e}"),
+            }
+        } else {
+            client::connect(config, (p.address.as_str(), p.port), handler).await
+        };
 
         // Distinguish a host-key mismatch from a generic connection failure.
         let presented = seen.lock().unwrap().clone();
@@ -124,27 +159,25 @@ impl SshManager {
         }
 
         let ok = match &p.auth {
-        ResolvedAuth::Password(pw) => {
-            handle.authenticate_password(&p.username, pw).await?
-        }
-        ResolvedAuth::Key {
-            private_key,
-            passphrase,
-        } => {
-            let key: KeyPair = decode_secret_key(private_key, passphrase.as_deref())?;
-            handle
-                .authenticate_publickey(&p.username, Arc::new(key))
-                .await?
-        }
-        ResolvedAuth::Agent => {
-            anyhow::bail!("SSH agent auth is not available on this build");
-        }
-    };
+            ResolvedAuth::Password(pw) => handle.authenticate_password(&p.username, pw).await?,
+            ResolvedAuth::Key {
+                private_key,
+                passphrase,
+            } => {
+                let key: KeyPair = decode_secret_key(private_key, passphrase.as_deref())?;
+                handle
+                    .authenticate_publickey(&p.username, Arc::new(key))
+                    .await?
+            }
+            ResolvedAuth::Agent => {
+                anyhow::bail!("SSH agent auth is not available on this build");
+            }
+        };
 
         if !ok {
             anyhow::bail!("authentication failed");
         }
-        Ok(handle)
+        Ok((handle, keepalive))
     }
 
     /// Open an interactive shell and stream output to the frontend through
@@ -155,7 +188,7 @@ impl SshManager {
         id: String,
         params: ConnectParams,
     ) -> anyhow::Result<()> {
-        let handle = self.connect(&params).await?;
+        let (handle, keepalive) = self.connect(&params).await?;
         let channel = handle.channel_open_session().await?;
 
         channel
@@ -176,6 +209,7 @@ impl SshManager {
 
         let sessions = self.sessions.clone();
         tokio::spawn(async move {
+            let _keepalive = keepalive; // keep jump-host tunnels open for the session
             let mut channel = channel;
             loop {
                 tokio::select! {
@@ -256,7 +290,7 @@ impl SshManager {
         params: ConnectParams,
         path: String,
     ) -> anyhow::Result<SftpListing> {
-        let handle = self.connect(&params).await?;
+        let (handle, _keepalive) = self.connect(&params).await?;
         let channel = handle.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
         let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
@@ -287,7 +321,7 @@ impl SshManager {
         remote: String,
         local: String,
     ) -> anyhow::Result<u64> {
-        let handle = self.connect(&params).await?;
+        let (handle, _keepalive) = self.connect(&params).await?;
         let channel = handle.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
         let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
@@ -305,7 +339,7 @@ impl SshManager {
         local: String,
         remote: String,
     ) -> anyhow::Result<u64> {
-        let handle = self.connect(&params).await?;
+        let (handle, _keepalive) = self.connect(&params).await?;
         let channel = handle.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
         let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
@@ -328,11 +362,12 @@ impl SshManager {
         dest_host: String,
         dest_port: u16,
     ) -> anyhow::Result<()> {
-        let handle = self.connect(&params).await?;
+        let (handle, keepalive) = self.connect(&params).await?;
         let listener =
             tokio::net::TcpListener::bind((bind_address.as_str(), bind_port)).await?;
         let handle = Arc::new(handle);
         let task = tokio::spawn(async move {
+            let _keepalive = keepalive; // keep jump-host tunnels open while forwarding
             loop {
                 let (mut socket, _) = match listener.accept().await {
                     Ok(v) => v,

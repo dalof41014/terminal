@@ -2,6 +2,8 @@ import {
   ArrowLeftRight,
   Cable,
   KeyRound,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
   Server,
   ShieldCheck,
@@ -35,6 +37,8 @@ export function Sidebar() {
   const setSidebarView = useStore((s) => s.setSidebarView);
   const mainView = useStore((s) => s.mainView);
   const setMainView = useStore((s) => s.setMainView);
+  const collapsed = useStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
 
@@ -42,6 +46,15 @@ export function Sidebar() {
     <div className="flex h-full shrink-0 border-r border-line">
       {/* icon rail */}
       <nav className="flex w-14 flex-col items-center gap-1 border-r border-line bg-bg-raised py-3">
+        <button
+          title={collapsed ? "Show panel" : "Hide panel"}
+          aria-label={collapsed ? "Show panel" : "Hide panel"}
+          onClick={toggleSidebar}
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-content-faint transition-colors duration-200 cursor-pointer hover:bg-surface-hover hover:text-content"
+        >
+          {collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
+        </button>
+        <div className="my-1 h-px w-6 bg-line-strong" />
         {NAV.map(({ view, icon: Icon, label }) => {
           const active = sidebarView === view && mainView === "terminals";
           return (
@@ -87,6 +100,7 @@ export function Sidebar() {
       </nav>
 
       {/* list panel */}
+      {!collapsed && (
       <div className="flex w-64 flex-col bg-bg">
         <div className="flex h-12 items-center px-4">
           <h2 className="text-sm font-semibold tracking-tight">{TITLES[sidebarView]}</h2>
@@ -113,6 +127,7 @@ export function Sidebar() {
           {sidebarView === "known" && <KnownHostList />}
         </div>
       </div>
+      )}
     </div>
   );
 }

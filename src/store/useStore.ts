@@ -30,6 +30,8 @@ interface StoreState {
   vault: VaultData;
   // ui
   sidebarView: SidebarView;
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
   mainView: MainView;
   setMainView: (v: MainView) => void;
   rightPanel: RightPanel;
@@ -92,8 +94,11 @@ export const useStore = create<StoreState>((set, get) => ({
   status: null,
   vault: emptyVault(),
   sidebarView: "hosts",
+  sidebarCollapsed: false,
+  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   mainView: "terminals",
-  setMainView: (v) => set({ mainView: v }),
+  // entering File Transfer auto-collapses the host list for a wider view
+  setMainView: (v) => set({ mainView: v, sidebarCollapsed: v === "files" }),
   rightPanel: "none",
   search: "",
   activeForwards: new Set(),

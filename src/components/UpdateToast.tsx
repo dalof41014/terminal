@@ -46,7 +46,7 @@ export function UpdateToast() {
             Update available · v{update.version}
           </p>
           <p className="mt-0.5 line-clamp-3 text-xs text-content-muted">
-            {update.body?.trim() || "A new version of Terminal is ready to install."}
+            {update.body?.trim() || "A new version of Tapterm is ready to install."}
           </p>
 
           {installing ? (

@@ -130,7 +130,7 @@ async fn accept_code(listener: &TcpListener) -> anyhow::Result<String> {
                 }
             }
 
-            let body = "<!doctype html><html><body style=\"font-family:system-ui;background:#0F172A;color:#F8FAFC;text-align:center;padding-top:90px\"><h2 style=\"color:#22C55E\">Terminal — Google Drive connected</h2><p>You can close this tab and return to the app.</p></body></html>";
+            let body = "<!doctype html><html><body style=\"font-family:system-ui;background:#0F172A;color:#F8FAFC;text-align:center;padding-top:90px\"><h2 style=\"color:#22C55E\">Tapterm — Google Drive connected</h2><p>You can close this tab and return to the app.</p></body></html>";
             let http = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),

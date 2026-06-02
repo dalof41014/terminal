@@ -1,4 +1,4 @@
-# Terminal
+# Tapterm
 
 A modern, cross-platform **SSH / SFTP terminal client** built with **Tauri 2 + React + TypeScript**.
 Developer-tool dark design system (IBM Plex Sans + JetBrains Mono, slate background with a green
@@ -74,5 +74,5 @@ npm run tauri dev
 
 ## Security notes
 
-- Vault file: `%APPDATA%/Terminal/vault.json` (Windows) / `~/.local/share/Terminal/` — encrypted at rest.
+- Vault file: `%APPDATA%/Tapterm/vault.json` (Windows) / `~/.local/share/Tapterm/` — encrypted at rest (auto-migrated from the old `Terminal` folder).
 - Host keys are pinned on first connect; remove a host from **Known Hosts** to re-trust after a legitimate key change.

@@ -4510,6 +4510,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "tapterm"
+version = "0.1.5"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "base64 0.22.1",
+ "dirs 5.0.1",
+ "futures",
+ "open",
+ "rand 0.8.6",
+ "reqwest",
+ "russh",
+ "russh-keys",
+ "russh-sftp",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-updater",
+ "thiserror 1.0.69",
+ "tokio",
+ "urlencoding",
+ "uuid",
+]
+
+[[package]]
 name = "tar"
 version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4882,38 +4914,6 @@ checksum = "c4790fc369d5a530f4b544b094e31388b9b3a37c0f4652ade4505945f5660d24"
 dependencies = [
  "new_debug_unreachable",
  "utf-8",
-]
-
-[[package]]
-name = "terminal-app"
-version = "0.1.4"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "argon2",
- "async-trait",
- "base64 0.22.1",
- "dirs 5.0.1",
- "futures",
- "open",
- "rand 0.8.6",
- "reqwest",
- "russh",
- "russh-keys",
- "russh-sftp",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-updater",
- "thiserror 1.0.69",
- "tokio",
- "urlencoding",
- "uuid",
 ]
 
 [[package]]

@@ -485,6 +485,9 @@ async fn forward_stop(state: State<'_, AppState>, id: String) -> Result<(), Stri
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Preserve data from the previous "Terminal" name.
+    sync::migrate_storage();
+
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

@@ -63,9 +63,21 @@ pub fn set_no_password(value: bool) -> anyhow::Result<()> {
 
 pub fn config_path() -> PathBuf {
     let mut d = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    d.push("Terminal");
+    d.push("Tapterm");
     d.push("sync.json");
     d
+}
+
+/// One-time migration: move the old "Terminal" data/config folders to "Tapterm"
+/// so an existing vault survives the rename.
+pub fn migrate_storage() {
+    for base in [dirs::data_dir(), dirs::config_dir()].into_iter().flatten() {
+        let old = base.join("Terminal");
+        let new = base.join("Tapterm");
+        if old.exists() && !new.exists() {
+            let _ = std::fs::rename(&old, &new);
+        }
+    }
 }
 
 pub fn load() -> SyncConfig {
@@ -86,7 +98,7 @@ pub fn save(cfg: &SyncConfig) -> anyhow::Result<()> {
 
 pub fn default_vault_path() -> PathBuf {
     let mut d = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-    d.push("Terminal");
+    d.push("Tapterm");
     d.push("vault.json");
     d
 }

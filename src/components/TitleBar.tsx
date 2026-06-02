@@ -27,7 +27,7 @@ export function TitleBar() {
       <div data-tauri-drag-region className="flex items-center gap-2 text-content">
         <TerminalSquare size={18} className="text-accent" />
         <span data-tauri-drag-region className="text-sm font-semibold tracking-tight">
-          Term<span className="text-accent">inal</span>
+          Tap<span className="text-accent">term</span>
         </span>
       </div>
 

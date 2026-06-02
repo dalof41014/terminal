@@ -1,0 +1,391 @@
+//! SSH session management: interactive shell (PTY) streaming, SFTP, and port
+//! forwarding. Built on `russh`.
+
+use async_trait::async_trait;
+use russh::client::{self, Handle, Handler};
+use russh::{ChannelId, ChannelMsg, Disconnect, Pty};
+use russh_keys::decode_secret_key;
+use russh_keys::key::{KeyPair, PublicKey};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{mpsc, Mutex};
+
+use crate::vault::{ResolvedAuth, Vault};
+
+/// Commands sent to a live shell session task.
+pub enum SessionCmd {
+    Data(Vec<u8>),
+    Resize { cols: u16, rows: u16 },
+    Close,
+}
+
+#[derive(Clone)]
+pub struct SshManager {
+    sessions: Arc<Mutex<HashMap<String, mpsc::UnboundedSender<SessionCmd>>>>,
+    forwards: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+    vault: Arc<Vault>,
+}
+
+impl SshManager {
+    pub fn new(vault: Arc<Vault>) -> Self {
+        SshManager {
+            sessions: Arc::new(Mutex::new(HashMap::new())),
+            forwards: Arc::new(Mutex::new(HashMap::new())),
+            vault,
+        }
+    }
+}
+
+// ---- russh client handler: verify server key against known-hosts (TOFU) ----
+
+struct ClientHandler {
+    /// Known fingerprint for this host, if any. None ⇒ trust-on-first-use.
+    expected: Option<String>,
+    /// What the server actually presented: (fingerprint, key_type).
+    seen: Arc<std::sync::Mutex<Option<(String, String)>>>,
+}
+
+fn fingerprint_of(key: &PublicKey) -> String {
+    format!("SHA256:{}", key.fingerprint())
+}
+
+#[async_trait]
+impl Handler for ClientHandler {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        server_public_key: &PublicKey,
+    ) -> Result<bool, Self::Error> {
+        let fp = fingerprint_of(server_public_key);
+        let key_type = server_public_key.name().to_string();
+        *self.seen.lock().unwrap() = Some((fp.clone(), key_type));
+        match &self.expected {
+            Some(known) => Ok(known == &fp), // reject on mismatch (possible MITM)
+            None => Ok(true),                // first use: accept, caller will remember
+        }
+    }
+}
+
+/// Connection parameters resolved from the vault.
+pub struct ConnectParams {
+    pub address: String,
+    pub port: u16,
+    pub username: String,
+    pub auth: ResolvedAuth,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+impl SshManager {
+    /// Connect + verify the host key + authenticate. On a brand-new host the
+    /// presented key is remembered (TOFU); on a mismatch the connection is
+    /// refused with a clear warning.
+    async fn connect(&self, p: &ConnectParams) -> anyhow::Result<Handle<ClientHandler>> {
+        let host_key = format!("{}:{}", p.address, p.port);
+        let expected = self.vault.known_fingerprint(&host_key);
+        let had_expected = expected.is_some();
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let handler = ClientHandler {
+            expected,
+            seen: seen.clone(),
+        };
+
+        let config = Arc::new(client::Config::default());
+        let connect_res =
+            client::connect(config, (p.address.as_str(), p.port), handler).await;
+
+        // Distinguish a host-key mismatch from a generic connection failure.
+        let presented = seen.lock().unwrap().clone();
+        let mut handle = match connect_res {
+            Ok(h) => h,
+            Err(e) => {
+                if had_expected {
+                    if let Some((fp, _)) = presented {
+                        anyhow::bail!(
+                            "⚠ REMOTE HOST KEY HAS CHANGED for {host_key}!\n\
+                             Presented key {fp} does not match the stored fingerprint.\n\
+                             This could be a man-in-the-middle attack. \
+                             If you trust this change, remove the host from Known Hosts and reconnect."
+                        );
+                    }
+                }
+                return Err(e.into());
+            }
+        };
+
+        // Remember the key on first successful use.
+        if !had_expected {
+            if let Some((fp, key_type)) = presented {
+                let _ = self.vault.remember_host(&host_key, &fp, &key_type);
+            }
+        }
+
+        let ok = match &p.auth {
+        ResolvedAuth::Password(pw) => {
+            handle.authenticate_password(&p.username, pw).await?
+        }
+        ResolvedAuth::Key {
+            private_key,
+            passphrase,
+        } => {
+            let key: KeyPair = decode_secret_key(private_key, passphrase.as_deref())?;
+            handle
+                .authenticate_publickey(&p.username, Arc::new(key))
+                .await?
+        }
+        ResolvedAuth::Agent => {
+            anyhow::bail!("SSH agent auth is not available on this build");
+        }
+    };
+
+        if !ok {
+            anyhow::bail!("authentication failed");
+        }
+        Ok(handle)
+    }
+
+    /// Open an interactive shell and stream output to the frontend through
+    /// Tauri events: `ssh://data/<id>`, `ssh://closed/<id>`, `ssh://error/<id>`.
+    pub async fn open_shell(
+        &self,
+        app: AppHandle,
+        id: String,
+        params: ConnectParams,
+    ) -> anyhow::Result<()> {
+        let handle = self.connect(&params).await?;
+        let channel = handle.channel_open_session().await?;
+
+        channel
+            .request_pty(
+                false,
+                "xterm-256color",
+                params.cols as u32,
+                params.rows as u32,
+                0,
+                0,
+                &[(Pty::ECHO, 1), (Pty::TTY_OP_ISPEED, 14400), (Pty::TTY_OP_OSPEED, 14400)],
+            )
+            .await?;
+        channel.request_shell(true).await?;
+
+        let (tx, mut rx) = mpsc::unbounded_channel::<SessionCmd>();
+        self.sessions.lock().await.insert(id.clone(), tx);
+
+        let sessions = self.sessions.clone();
+        tokio::spawn(async move {
+            let mut channel = channel;
+            loop {
+                tokio::select! {
+                    msg = channel.wait() => {
+                        match msg {
+                            Some(ChannelMsg::Data { ref data }) => {
+                                let _ = app.emit(
+                                    &format!("ssh://data/{id}"),
+                                    String::from_utf8_lossy(data).to_string(),
+                                );
+                            }
+                            Some(ChannelMsg::ExtendedData { ref data, .. }) => {
+                                let _ = app.emit(
+                                    &format!("ssh://data/{id}"),
+                                    String::from_utf8_lossy(data).to_string(),
+                                );
+                            }
+                            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    cmd = rx.recv() => {
+                        match cmd {
+                            Some(SessionCmd::Data(bytes)) => {
+                                let _ = channel.data(&bytes[..]).await;
+                            }
+                            Some(SessionCmd::Resize { cols, rows }) => {
+                                let _ = channel
+                                    .window_change(cols as u32, rows as u32, 0, 0)
+                                    .await;
+                            }
+                            Some(SessionCmd::Close) | None => {
+                                let _ = channel.eof().await;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = handle
+                .disconnect(Disconnect::ByApplication, "", "en")
+                .await;
+            sessions.lock().await.remove(&id);
+            let _ = app.emit(&format!("ssh://closed/{id}"), ());
+        });
+
+        Ok(())
+    }
+
+    pub async fn send_input(&self, id: &str, data: Vec<u8>) -> anyhow::Result<()> {
+        if let Some(tx) = self.sessions.lock().await.get(id) {
+            tx.send(SessionCmd::Data(data))
+                .map_err(|_| anyhow::anyhow!("session closed"))?;
+        }
+        Ok(())
+    }
+
+    pub async fn resize(&self, id: &str, cols: u16, rows: u16) -> anyhow::Result<()> {
+        if let Some(tx) = self.sessions.lock().await.get(id) {
+            let _ = tx.send(SessionCmd::Resize { cols, rows });
+        }
+        Ok(())
+    }
+
+    pub async fn close(&self, id: &str) -> anyhow::Result<()> {
+        if let Some(tx) = self.sessions.lock().await.get(id) {
+            let _ = tx.send(SessionCmd::Close);
+        }
+        Ok(())
+    }
+
+    // ---- SFTP ----
+
+    pub async fn sftp_list(
+        &self,
+        params: ConnectParams,
+        path: String,
+    ) -> anyhow::Result<SftpListing> {
+        let handle = self.connect(&params).await?;
+        let channel = handle.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
+        let dir = if path.is_empty() {
+            sftp.canonicalize(".").await.unwrap_or_else(|_| ".".into())
+        } else {
+            path
+        };
+        let mut out = Vec::new();
+        let entries = sftp.read_dir(&dir).await?;
+        for e in entries {
+            let meta = e.metadata();
+            out.push(SftpEntry {
+                name: e.file_name(),
+                is_dir: meta.is_dir(),
+                size: meta.size.unwrap_or(0),
+                modified: meta.mtime.unwrap_or(0) as i64,
+            });
+        }
+        out.sort_by(|a, b| (b.is_dir, a.name.to_lowercase()).cmp(&(a.is_dir, b.name.to_lowercase())));
+        let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        Ok(SftpListing { cwd: dir, entries: out })
+    }
+
+    pub async fn sftp_download(
+        &self,
+        params: ConnectParams,
+        remote: String,
+        local: String,
+    ) -> anyhow::Result<u64> {
+        let handle = self.connect(&params).await?;
+        let channel = handle.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
+        let mut rf = sftp.open(&remote).await?;
+        let mut buf = Vec::new();
+        rf.read_to_end(&mut buf).await?;
+        tokio::fs::write(&local, &buf).await?;
+        let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        Ok(buf.len() as u64)
+    }
+
+    pub async fn sftp_upload(
+        &self,
+        params: ConnectParams,
+        local: String,
+        remote: String,
+    ) -> anyhow::Result<u64> {
+        let handle = self.connect(&params).await?;
+        let channel = handle.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
+        let bytes = tokio::fs::read(&local).await?;
+        let mut wf = sftp.create(&remote).await?;
+        wf.write_all(&bytes).await?;
+        wf.flush().await?;
+        let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        Ok(bytes.len() as u64)
+    }
+
+    // ---- local port forwarding ----
+
+    pub async fn start_local_forward(
+        &self,
+        id: String,
+        params: ConnectParams,
+        bind_address: String,
+        bind_port: u16,
+        dest_host: String,
+        dest_port: u16,
+    ) -> anyhow::Result<()> {
+        let handle = self.connect(&params).await?;
+        let listener =
+            tokio::net::TcpListener::bind((bind_address.as_str(), bind_port)).await?;
+        let handle = Arc::new(handle);
+        let task = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let handle = handle.clone();
+                let dest_host = dest_host.clone();
+                let originator = "127.0.0.1".to_string();
+                tokio::spawn(async move {
+                    let channel = match handle
+                        .channel_open_direct_tcpip(
+                            dest_host,
+                            dest_port as u32,
+                            originator,
+                            0,
+                        )
+                        .await
+                    {
+                        Ok(c) => c,
+                        Err(_) => return,
+                    };
+                    let mut stream = channel.into_stream();
+                    let _ = tokio::io::copy_bidirectional(&mut socket, &mut stream).await;
+                });
+            }
+        });
+        self.forwards.lock().await.insert(id, task);
+        Ok(())
+    }
+
+    pub async fn stop_forward(&self, id: &str) -> anyhow::Result<()> {
+        if let Some(task) = self.forwards.lock().await.remove(id) {
+            task.abort();
+        }
+        Ok(())
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct SftpEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub modified: i64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpListing {
+    pub cwd: String,
+    pub entries: Vec<SftpEntry>,
+}
+
+// keep ChannelId import used (some russh versions need it in scope)
+#[allow(dead_code)]
+fn _channel_id_marker(_: ChannelId) {}

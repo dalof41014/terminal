@@ -1,0 +1,26 @@
+# local Claude config & skills (not part of the app)
+.claude/
+
+# dependencies
+node_modules/
+
+# build output
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# tauri signing keys — NEVER commit
+*.key
+*.key.pub
+
+# generated icons source
+src-tauri/app-icon.png
+
+# screenshots / scratch
+screenshot-*.png
+
+# logs / env
+*.log
+.env
+.DS_Store
+Thumbs.db

@@ -1,0 +1,100 @@
+@import "@xterm/xterm/css/xterm.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  background: #0f172a;
+  color: #f8fafc;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ---- scrollbars ---- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+  background-clip: content-box;
+}
+
+/* ---- focus ring (accessibility) ---- */
+:focus-visible {
+  outline: 2px solid #22c55e;
+  outline-offset: 1px;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium
+      transition-colors duration-200 cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-bg hover:bg-accent-hover;
+  }
+  .btn-ghost {
+    @apply btn text-content-muted hover:bg-surface-hover hover:text-content;
+  }
+  .btn-surface {
+    @apply btn bg-surface text-content hover:bg-surface-hover border border-line-strong;
+  }
+  .input {
+    @apply w-full rounded-lg bg-bg-inset border border-line-strong px-3 py-2 text-sm text-content
+      placeholder:text-content-faint outline-none transition-colors duration-200
+      focus:border-accent;
+    user-select: text;
+  }
+  .label {
+    @apply block text-xs font-medium uppercase tracking-wide text-content-faint mb-1.5;
+  }
+  .card {
+    @apply rounded-xl bg-bg-raised border border-line;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-content-muted;
+  }
+}
+
+/* allow text selection inside the terminal and inputs */
+.xterm,
+.allow-select,
+input,
+textarea {
+  user-select: text;
+}
+
+.xterm {
+  padding: 8px 10px;
+}
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: #2c3a52;
+  background-clip: content-box;
+}

@@ -65,6 +65,22 @@ fn vault_autounlock(state: State<AppState>) -> bool {
     state.vault.is_unlocked()
 }
 
+/// Set or change the master password (vault must be unlocked). Disables
+/// auto-unlock so the password is required on next launch.
+#[tauri::command]
+fn vault_set_password(state: State<AppState>, password: String) -> Result<(), String> {
+    map_err(state.vault.rekey(&password))?;
+    map_err(sync::set_no_password(false))
+}
+
+/// Remove the master password: re-encrypt under a built-in key and auto-unlock
+/// on future launches.
+#[tauri::command]
+fn vault_remove_password(state: State<AppState>) -> Result<(), String> {
+    map_err(state.vault.rekey(NO_PASSWORD_KEY))?;
+    map_err(sync::set_no_password(true))
+}
+
 #[tauri::command]
 fn vault_unlock(state: State<AppState>, password: String) -> Result<(), String> {
     map_err(state.vault.unlock(&password))
@@ -493,6 +509,8 @@ pub fn run() {
             vault_init,
             vault_init_nopass,
             vault_autounlock,
+            vault_set_password,
+            vault_remove_password,
             vault_unlock,
             vault_lock,
             vault_get,

@@ -6,6 +6,9 @@ export const vaultStatus = () => invoke<VaultStatus>("vault_status");
 export const vaultInit = (password: string) => invoke<void>("vault_init", { password });
 export const vaultInitNopass = () => invoke<void>("vault_init_nopass");
 export const vaultAutounlock = () => invoke<boolean>("vault_autounlock");
+export const vaultSetPassword = (password: string) =>
+  invoke<void>("vault_set_password", { password });
+export const vaultRemovePassword = () => invoke<void>("vault_remove_password");
 export const vaultUnlock = (password: string) => invoke<void>("vault_unlock", { password });
 export const vaultLock = () => invoke<void>("vault_lock");
 export const vaultGet = () => invoke<VaultData>("vault_get");

@@ -219,6 +219,19 @@ impl Vault {
         g.unlocked = false;
     }
 
+    /// Re-encrypt the current (unlocked) data under a new password, keeping all
+    /// data. Used to set, change, or remove the master password.
+    pub fn rekey(&self, password: &str) -> anyhow::Result<()> {
+        let mut g = self.inner.lock().unwrap();
+        ensure_unlocked(&g)?;
+        let mut salt = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut salt);
+        let key = derive_key(password, &salt)?;
+        g.salt = salt;
+        g.key = Some(key);
+        persist(&g)
+    }
+
     // ---- sync helpers (operate on the ciphertext file) ----
 
     pub fn path_string(&self) -> String {

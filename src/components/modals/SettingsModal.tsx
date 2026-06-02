@@ -7,7 +7,9 @@ import {
   HardDrive,
   Link2,
   Link2Off,
+  Lock,
   RefreshCw,
+  Unlock,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Modal } from "../ui/Modal";
@@ -21,6 +23,8 @@ import {
   syncSetFolder,
   syncSetLocal,
   syncStatus,
+  vaultRemovePassword,
+  vaultSetPassword,
 } from "../../lib/api";
 import { useStore } from "../../store/useStore";
 import type { SyncStatus } from "../../lib/types";
@@ -28,6 +32,7 @@ import type { SyncStatus } from "../../lib/types";
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const refreshStatus = useStore((s) => s.refreshStatus);
   const setGdriveConnected = useStore((s) => s.setGdriveConnected);
+  const setNoPassword = useStore((s) => s.setNoPassword);
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,12 +42,17 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [clientSecret, setClientSecret] = useState("");
   const [showCreds, setShowCreds] = useState(false);
 
+  // security
+  const [newPw, setNewPw] = useState("");
+  const [showPwInput, setShowPwInput] = useState(false);
+
   const load = useCallback(async () => {
     const s = await syncStatus();
     setSync(s);
     setGdriveConnected(s.gdriveConnected);
+    setNoPassword(s.noPassword);
     setShowCreds(!s.gdriveHasCredentials);
-  }, [setGdriveConnected]);
+  }, [setGdriveConnected, setNoPassword]);
 
   useEffect(() => {
     load();
@@ -207,6 +217,72 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           Switching location or pulling from the cloud locks the vault — you'll re-enter your master
           password against the new file.
         </p>
+      </section>
+
+      <section className="mt-6 border-t border-line pt-5">
+        <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-content">
+          {sync?.noPassword ? (
+            <Unlock size={16} className="text-warn" />
+          ) : (
+            <Lock size={16} className="text-accent" />
+          )}
+          Master password
+        </h3>
+
+        {sync?.noPassword ? (
+          <>
+            <p className="mb-3 text-xs text-content-muted">
+              Auto-unlock is <span className="text-warn">on</span> — the app opens without asking for a
+              password. The vault is encrypted with a built-in key (obfuscated, not password-protected).
+            </p>
+            {showPwInput ? (
+              <div className="flex items-center gap-2">
+                <PasswordInput
+                  className="input py-1.5 text-xs"
+                  placeholder="New master password"
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                />
+                <button
+                  className="btn-primary shrink-0 px-3 py-1.5 text-xs"
+                  disabled={newPw.length < 4 || !!busy}
+                  onClick={() =>
+                    run("setpw", async () => {
+                      await vaultSetPassword(newPw);
+                      setNewPw("");
+                      setShowPwInput(false);
+                    })
+                  }
+                >
+                  Set password
+                </button>
+              </div>
+            ) : (
+              <button className="btn-surface px-3 py-1.5 text-xs" onClick={() => setShowPwInput(true)}>
+                <Lock size={13} /> Set a master password
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="mb-3 text-xs text-content-muted">
+              A master password is required every time the app launches. Remove it to auto-unlock on
+              this device (less secure — anyone with this app can open your vault).
+            </p>
+            <button
+              className="btn-surface px-3 py-1.5 text-xs hover:text-warn"
+              disabled={!!busy}
+              onClick={() => {
+                if (confirm("Remove the master password? The app will auto-unlock on launch.")) {
+                  run("rmpw", vaultRemovePassword);
+                }
+              }}
+            >
+              {busy === "rmpw" ? <RefreshCw size={13} className="animate-spin" /> : <Unlock size={13} />}
+              Remove master password (auto-unlock)
+            </button>
+          </>
+        )}
       </section>
     </Modal>
   );

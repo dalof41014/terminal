@@ -1,8 +1,8 @@
 # Tapterm
 
-A modern, cross-platform **SSH / SFTP terminal client** built with **Tauri 2 + React + TypeScript**.
-Developer-tool dark design system (IBM Plex Sans + JetBrains Mono, slate background with a green
-"connect/run" accent), inspired by Termius.
+A modern, cross-platform **SSH / SFTP terminal client** built with **Tauri 2 + React + TypeScript**,
+with a developer-tool dark UI, an encrypted vault, host management, tunnels, cloud sync, a built-in
+file transfer manager, and a local terminal.
 
 ## Features
 

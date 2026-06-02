@@ -44,10 +44,21 @@ export const sftpDownload = (hostId: string, remote: string, local: string) =>
 export const sftpUpload = (hostId: string, local: string, remote: string) =>
   invoke<number>("sftp_upload", { hostId, local, remote });
 
+// ---- local fs + cross-host transfer ----
+export const localHome = () => invoke<string>("local_home");
+export const localList = (path: string) => invoke<SftpListing>("local_list", { path });
+export const sftpTransfer = (
+  srcHostId: string | null,
+  srcPath: string,
+  dstHostId: string | null,
+  dstPath: string,
+) => invoke<number>("sftp_transfer", { srcHostId, srcPath, dstHostId, dstPath });
+
 // ---- port forwarding ----
 export const forwardStart = (
   id: string,
   hostId: string,
+  kind: string,
   bindAddress: string,
   bindPort: number,
   destHost: string,
@@ -56,6 +67,7 @@ export const forwardStart = (
   invoke<void>("forward_start", {
     id,
     hostId,
+    kind,
     bindAddress,
     bindPort,
     destHost,

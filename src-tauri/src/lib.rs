@@ -7,7 +7,7 @@ use sync::GDriveConfig;
 
 use std::sync::Arc;
 
-use ssh::{ConnectParams, SftpListing, SshManager};
+use ssh::{ConnectParams, SftpEntry, SftpListing, SshManager};
 use tauri::{AppHandle, State};
 use vault::{KnownHost, Vault, VaultData};
 
@@ -350,6 +350,81 @@ async fn sftp_upload(
     map_err(state.ssh.sftp_upload(params, local, remote).await)
 }
 
+// ---------- local filesystem + cross-host transfer ----------
+
+#[tauri::command]
+fn local_home() -> String {
+    dirs::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn local_list(path: String) -> Result<SftpListing, String> {
+    use std::path::PathBuf;
+    let dir = if path.is_empty() {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        PathBuf::from(&path)
+    };
+    let rd = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
+    let mut entries = Vec::new();
+    for e in rd.flatten() {
+        let meta = e.metadata().ok();
+        let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let modified = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        entries.push(SftpEntry {
+            name: e.file_name().to_string_lossy().to_string(),
+            is_dir,
+            size,
+            modified,
+        });
+    }
+    entries.sort_by(|a, b| {
+        (b.is_dir, a.name.to_lowercase()).cmp(&(a.is_dir, b.name.to_lowercase()))
+    });
+    Ok(SftpListing {
+        cwd: dir.to_string_lossy().to_string(),
+        entries,
+    })
+}
+
+/// Transfer a file between any two endpoints (local or a host). `None` host id
+/// means the local machine; host→host relays through this client.
+#[tauri::command]
+async fn sftp_transfer(
+    state: State<'_, AppState>,
+    src_host_id: Option<String>,
+    src_path: String,
+    dst_host_id: Option<String>,
+    dst_path: String,
+) -> Result<u64, String> {
+    let bytes = match &src_host_id {
+        Some(h) => {
+            let p = params_for(&state, h, 80, 24)?;
+            map_err(state.ssh.sftp_read(p, src_path).await)?
+        }
+        None => tokio::fs::read(&src_path).await.map_err(|e| e.to_string())?,
+    };
+    let len = bytes.len() as u64;
+    match &dst_host_id {
+        Some(h) => {
+            let p = params_for(&state, h, 80, 24)?;
+            map_err(state.ssh.sftp_write(p, dst_path, bytes).await)?;
+        }
+        None => tokio::fs::write(&dst_path, &bytes)
+            .await
+            .map_err(|e| e.to_string())?,
+    }
+    Ok(len)
+}
+
 // ---------- port forwarding ----------
 
 #[tauri::command]
@@ -357,18 +432,34 @@ async fn forward_start(
     state: State<'_, AppState>,
     id: String,
     host_id: String,
+    kind: String,
     bind_address: String,
     bind_port: u16,
     dest_host: String,
     dest_port: u16,
 ) -> Result<(), String> {
     let params = params_for(&state, &host_id, 80, 24)?;
-    map_err(
-        state
-            .ssh
-            .start_local_forward(id, params, bind_address, bind_port, dest_host, dest_port)
-            .await,
-    )
+    let r = match kind.as_str() {
+        "Remote" => {
+            state
+                .ssh
+                .start_remote_forward(id, params, bind_address, bind_port, dest_host, dest_port)
+                .await
+        }
+        "Dynamic" => {
+            state
+                .ssh
+                .start_dynamic_forward(id, params, bind_address, bind_port)
+                .await
+        }
+        _ => {
+            state
+                .ssh
+                .start_local_forward(id, params, bind_address, bind_port, dest_host, dest_port)
+                .await
+        }
+    };
+    map_err(r)
 }
 
 #[tauri::command]
@@ -423,6 +514,9 @@ pub fn run() {
             sftp_list,
             sftp_download,
             sftp_upload,
+            local_home,
+            local_list,
+            sftp_transfer,
             forward_start,
             forward_stop,
         ])

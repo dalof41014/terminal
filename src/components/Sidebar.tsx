@@ -1,4 +1,12 @@
-import { Cable, KeyRound, Search, Server, ShieldCheck, SquareCode } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Cable,
+  KeyRound,
+  Search,
+  Server,
+  ShieldCheck,
+  SquareCode,
+} from "lucide-react";
 import { useStore, type SidebarView } from "../store/useStore";
 import { HostList } from "./lists/HostList";
 import { KeyList } from "./lists/KeyList";
@@ -25,6 +33,8 @@ const TITLES: Record<SidebarView, string> = {
 export function Sidebar() {
   const sidebarView = useStore((s) => s.sidebarView);
   const setSidebarView = useStore((s) => s.setSidebarView);
+  const mainView = useStore((s) => s.mainView);
+  const setMainView = useStore((s) => s.setMainView);
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
 
@@ -33,13 +43,16 @@ export function Sidebar() {
       {/* icon rail */}
       <nav className="flex w-14 flex-col items-center gap-1 border-r border-line bg-bg-raised py-3">
         {NAV.map(({ view, icon: Icon, label }) => {
-          const active = sidebarView === view;
+          const active = sidebarView === view && mainView === "terminals";
           return (
             <button
               key={view}
               title={label}
               aria-label={label}
-              onClick={() => setSidebarView(view)}
+              onClick={() => {
+                setSidebarView(view);
+                setMainView("terminals");
+              }}
               className={`group relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors duration-200 cursor-pointer ${
                 active
                   ? "bg-accent-soft text-accent"
@@ -53,6 +66,24 @@ export function Sidebar() {
             </button>
           );
         })}
+
+        <div className="my-1 h-px w-6 bg-line-strong" />
+
+        <button
+          title="File Transfer"
+          aria-label="File Transfer"
+          onClick={() => setMainView("files")}
+          className={`group relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors duration-200 cursor-pointer ${
+            mainView === "files"
+              ? "bg-accent-soft text-accent"
+              : "text-content-faint hover:bg-surface-hover hover:text-content"
+          }`}
+        >
+          {mainView === "files" && (
+            <span className="absolute -left-3 h-5 w-1 rounded-r-full bg-accent" />
+          )}
+          <ArrowLeftRight size={19} />
+        </button>
       </nav>
 
       {/* list panel */}

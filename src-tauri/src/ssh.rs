@@ -45,6 +45,8 @@ struct ClientHandler {
     expected: Option<String>,
     /// What the server actually presented: (fingerprint, key_type).
     seen: Arc<std::sync::Mutex<Option<(String, String)>>>,
+    /// For remote (reverse) forwarding: where to deliver inbound channels.
+    forward: Option<(String, u16)>,
 }
 
 fn fingerprint_of(key: &PublicKey) -> String {
@@ -66,6 +68,27 @@ impl Handler for ClientHandler {
             Some(known) => Ok(known == &fp), // reject on mismatch (possible MITM)
             None => Ok(true),                // first use: accept, caller will remember
         }
+    }
+
+    /// A remote-forwarded connection arrived: pipe it to the local destination.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<russh::client::Msg>,
+        _connected_address: &str,
+        _connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut russh::client::Session,
+    ) -> Result<(), Self::Error> {
+        if let Some((host, port)) = self.forward.clone() {
+            tokio::spawn(async move {
+                if let Ok(mut tcp) = tokio::net::TcpStream::connect((host.as_str(), port)).await {
+                    let mut stream = channel.into_stream();
+                    let _ = tokio::io::copy_bidirectional(&mut tcp, &mut stream).await;
+                }
+            });
+        }
+        Ok(())
     }
 }
 
@@ -95,6 +118,14 @@ impl SshManager {
         &self,
         p: &ConnectParams,
     ) -> anyhow::Result<(Handle<ClientHandler>, Keepalive)> {
+        self.connect_with(p, None).await
+    }
+
+    async fn connect_with(
+        &self,
+        p: &ConnectParams,
+        forward: Option<(String, u16)>,
+    ) -> anyhow::Result<(Handle<ClientHandler>, Keepalive)> {
         let host_key = format!("{}:{}", p.address, p.port);
         let expected = self.vault.known_fingerprint(&host_key);
         let had_expected = expected.is_some();
@@ -102,6 +133,7 @@ impl SshManager {
         let handler = ClientHandler {
             expected,
             seen: seen.clone(),
+            forward,
         };
 
         let config = Arc::new(client::Config::default());
@@ -110,7 +142,7 @@ impl SshManager {
         let connect_res = if let Some(jump) = &p.jump {
             // Establish the upstream hop, then open a direct-tcpip channel to the
             // target and run SSH over that stream.
-            let (jump_handle, chain) = Box::pin(self.connect(jump)).await?;
+            let (jump_handle, chain) = Box::pin(self.connect_with(jump, None)).await?;
             keepalive = chain;
             match jump_handle
                 .channel_open_direct_tcpip(
@@ -351,6 +383,37 @@ impl SshManager {
         Ok(bytes.len() as u64)
     }
 
+    /// Read a remote file fully into memory (used for host-to-host transfers).
+    pub async fn sftp_read(&self, params: ConnectParams, remote: String) -> anyhow::Result<Vec<u8>> {
+        let (handle, _keepalive) = self.connect(&params).await?;
+        let channel = handle.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
+        let mut rf = sftp.open(&remote).await?;
+        let mut buf = Vec::new();
+        rf.read_to_end(&mut buf).await?;
+        let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        Ok(buf)
+    }
+
+    /// Write bytes to a remote file (used for host-to-host transfers).
+    pub async fn sftp_write(
+        &self,
+        params: ConnectParams,
+        remote: String,
+        bytes: Vec<u8>,
+    ) -> anyhow::Result<u64> {
+        let (handle, _keepalive) = self.connect(&params).await?;
+        let channel = handle.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await?;
+        let mut wf = sftp.create(&remote).await?;
+        wf.write_all(&bytes).await?;
+        wf.flush().await?;
+        let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        Ok(bytes.len() as u64)
+    }
+
     // ---- local port forwarding ----
 
     pub async fn start_local_forward(
@@ -398,12 +461,138 @@ impl SshManager {
         Ok(())
     }
 
+    /// Remote (reverse) forward: ask the server to listen on `bind` and pipe
+    /// every inbound connection back to `dest` on this machine.
+    pub async fn start_remote_forward(
+        &self,
+        id: String,
+        params: ConnectParams,
+        bind_address: String,
+        bind_port: u16,
+        dest_host: String,
+        dest_port: u16,
+    ) -> anyhow::Result<()> {
+        let (mut handle, keepalive) = self
+            .connect_with(&params, Some((dest_host, dest_port)))
+            .await?;
+        handle
+            .tcpip_forward(&bind_address, bind_port as u32)
+            .await?;
+        // Keep the session (and any jump tunnels) alive until the rule is stopped.
+        let task = tokio::spawn(async move {
+            let _keepalive = keepalive;
+            let _handle = handle;
+            futures::future::pending::<()>().await;
+        });
+        self.forwards.lock().await.insert(id, task);
+        Ok(())
+    }
+
+    /// Dynamic forward: run a minimal SOCKS5 proxy on `bind` and open a
+    /// direct-tcpip channel per request through the SSH connection.
+    pub async fn start_dynamic_forward(
+        &self,
+        id: String,
+        params: ConnectParams,
+        bind_address: String,
+        bind_port: u16,
+    ) -> anyhow::Result<()> {
+        let (handle, keepalive) = self.connect(&params).await?;
+        let listener =
+            tokio::net::TcpListener::bind((bind_address.as_str(), bind_port)).await?;
+        let handle = Arc::new(handle);
+        let task = tokio::spawn(async move {
+            let _keepalive = keepalive;
+            loop {
+                let (socket, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let handle = handle.clone();
+                tokio::spawn(async move {
+                    let _ = handle_socks(handle, socket).await;
+                });
+            }
+        });
+        self.forwards.lock().await.insert(id, task);
+        Ok(())
+    }
+
     pub async fn stop_forward(&self, id: &str) -> anyhow::Result<()> {
         if let Some(task) = self.forwards.lock().await.remove(id) {
             task.abort();
         }
         Ok(())
     }
+}
+
+/// Minimal SOCKS5 (no auth, CONNECT only) bridged over an SSH direct-tcpip channel.
+async fn handle_socks(
+    handle: Arc<Handle<ClientHandler>>,
+    mut socket: tokio::net::TcpStream,
+) -> anyhow::Result<()> {
+    // greeting
+    let mut head = [0u8; 2];
+    socket.read_exact(&mut head).await?;
+    if head[0] != 0x05 {
+        anyhow::bail!("not socks5");
+    }
+    let mut methods = vec![0u8; head[1] as usize];
+    socket.read_exact(&mut methods).await?;
+    socket.write_all(&[0x05, 0x00]).await?; // no auth
+
+    // request: VER CMD RSV ATYP
+    let mut req = [0u8; 4];
+    socket.read_exact(&mut req).await?;
+    if req[1] != 0x01 {
+        // only CONNECT
+        socket
+            .write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+            .await?;
+        anyhow::bail!("unsupported socks command");
+    }
+    let dest_host = match req[3] {
+        0x01 => {
+            let mut a = [0u8; 4];
+            socket.read_exact(&mut a).await?;
+            format!("{}.{}.{}.{}", a[0], a[1], a[2], a[3])
+        }
+        0x03 => {
+            let mut l = [0u8; 1];
+            socket.read_exact(&mut l).await?;
+            let mut d = vec![0u8; l[0] as usize];
+            socket.read_exact(&mut d).await?;
+            String::from_utf8_lossy(&d).to_string()
+        }
+        0x04 => {
+            let mut a = [0u8; 16];
+            socket.read_exact(&mut a).await?;
+            std::net::Ipv6Addr::from(a).to_string()
+        }
+        _ => anyhow::bail!("bad socks address type"),
+    };
+    let mut portb = [0u8; 2];
+    socket.read_exact(&mut portb).await?;
+    let dest_port = u16::from_be_bytes(portb);
+
+    match handle
+        .channel_open_direct_tcpip(dest_host, dest_port as u32, "127.0.0.1".to_string(), 0)
+        .await
+    {
+        Ok(channel) => {
+            socket
+                .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await?;
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut socket, &mut stream).await;
+        }
+        Err(_) => {
+            socket
+                .write_all(&[0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .await?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(serde::Serialize)]

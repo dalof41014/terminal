@@ -14,6 +14,7 @@ import {
 
 export type SidebarView = "hosts" | "keys" | "snippets" | "forwards" | "known";
 export type RightPanel = "none" | "sftp" | "snippets" | "forwards";
+export type MainView = "terminals" | "files";
 
 export interface Tab {
   id: string;
@@ -29,6 +30,8 @@ interface StoreState {
   vault: VaultData;
   // ui
   sidebarView: SidebarView;
+  mainView: MainView;
+  setMainView: (v: MainView) => void;
   rightPanel: RightPanel;
   search: string;
   activeForwards: Set<string>;
@@ -89,6 +92,8 @@ export const useStore = create<StoreState>((set, get) => ({
   status: null,
   vault: emptyVault(),
   sidebarView: "hosts",
+  mainView: "terminals",
+  setMainView: (v) => set({ mainView: v }),
   rightPanel: "none",
   search: "",
   activeForwards: new Set(),

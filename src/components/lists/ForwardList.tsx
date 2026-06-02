@@ -26,6 +26,7 @@ export function ForwardList() {
         await forwardStart(
           f.id,
           f.hostId,
+          f.kind,
           f.bindAddress,
           f.bindPort,
           f.destHost ?? "localhost",

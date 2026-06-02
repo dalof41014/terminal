@@ -4,11 +4,13 @@ import { gdrivePull, syncStatus, vaultAutounlock } from "./lib/api";
 import { VaultGate } from "./components/VaultGate";
 import { Sidebar } from "./components/Sidebar";
 import { Workspace } from "./components/Workspace";
+import { FileManager } from "./components/FileManager";
 import { TitleBar } from "./components/TitleBar";
 import { UpdateToast } from "./components/UpdateToast";
 
 export default function App() {
   const status = useStore((s) => s.status);
+  const mainView = useStore((s) => s.mainView);
   const refreshStatus = useStore((s) => s.refreshStatus);
   const setGdriveConnected = useStore((s) => s.setGdriveConnected);
   const setNoPassword = useStore((s) => s.setNoPassword);
@@ -54,7 +56,7 @@ export default function App() {
       ) : (
         <div className="flex min-h-0 flex-1">
           <Sidebar />
-          <Workspace />
+          {mainView === "files" ? <FileManager /> : <Workspace />}
         </div>
       )}
       <UpdateToast />

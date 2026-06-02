@@ -7,6 +7,7 @@ use sync::GDriveConfig;
 
 use std::sync::Arc;
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ssh::{ConnectParams, SftpEntry, SftpListing, SshManager};
 use tauri::{AppHandle, State};
 use vault::{KnownHost, Vault, VaultData};
@@ -441,6 +442,28 @@ async fn sftp_transfer(
     Ok(len)
 }
 
+/// Read a file (local or remote) and return its bytes as base64 — used for
+/// image previews. Capped to keep previews snappy.
+#[tauri::command]
+async fn file_read_b64(
+    state: State<'_, AppState>,
+    host_id: Option<String>,
+    path: String,
+) -> Result<String, String> {
+    const MAX: usize = 16 * 1024 * 1024;
+    let bytes = match &host_id {
+        Some(h) => {
+            let p = params_for(&state, h, 80, 24)?;
+            map_err(state.ssh.sftp_read(p, path).await)?
+        }
+        None => tokio::fs::read(&path).await.map_err(|e| e.to_string())?,
+    };
+    if bytes.len() > MAX {
+        return Err("file is too large to preview".to_string());
+    }
+    Ok(B64.encode(&bytes))
+}
+
 // ---------- port forwarding ----------
 
 #[tauri::command]
@@ -538,6 +561,7 @@ pub fn run() {
             local_home,
             local_list,
             sftp_transfer,
+            file_read_b64,
             forward_start,
             forward_stop,
         ])

@@ -56,6 +56,8 @@ export const sftpTransfer = (
   dstHostId: string | null,
   dstPath: string,
 ) => invoke<number>("sftp_transfer", { srcHostId, srcPath, dstHostId, dstPath });
+export const fileReadB64 = (hostId: string | null, path: string) =>
+  invoke<string>("file_read_b64", { hostId, path });
 
 // ---- port forwarding ----
 export const forwardStart = (

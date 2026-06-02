@@ -42,6 +42,8 @@ interface StoreState {
   setGdriveConnected: (v: boolean) => void;
   noPassword: boolean;
   setNoPassword: (v: boolean) => void;
+  terminalThemeId: string;
+  setTerminalTheme: (id: string) => void;
   // tabs
   tabs: Tab[];
   activeTabId: string | null;
@@ -107,6 +109,16 @@ export const useStore = create<StoreState>((set, get) => ({
   setGdriveConnected: (v) => set({ gdriveConnected: v }),
   noPassword: false,
   setNoPassword: (v) => set({ noPassword: v }),
+  terminalThemeId:
+    (typeof localStorage !== "undefined" && localStorage.getItem("term-theme")) || "tapterm",
+  setTerminalTheme: (id) => {
+    try {
+      localStorage.setItem("term-theme", id);
+    } catch {
+      /* ignore */
+    }
+    set({ terminalThemeId: id });
+  },
   tabs: [],
   activeTabId: null,
 

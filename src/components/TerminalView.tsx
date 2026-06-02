@@ -7,31 +7,8 @@ import { AlertTriangle, ArrowDown, ArrowUp, Pencil, RotateCw, X } from "lucide-r
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { sshClose, sshOpenShell, sshResize, sshSend } from "../lib/api";
 import { useStore, type Tab } from "../store/useStore";
+import { themeById } from "../lib/themes";
 import { HostModal } from "./modals/HostModal";
-
-const THEME = {
-  background: "#0B1220",
-  foreground: "#E2E8F0",
-  cursor: "#818CF8",
-  cursorAccent: "#0B1220",
-  selectionBackground: "#6366F140",
-  black: "#1E293B",
-  red: "#F43F5E",
-  green: "#22C55E",
-  yellow: "#FBBF24",
-  blue: "#38BDF8",
-  magenta: "#A78BFA",
-  cyan: "#2DD4BF",
-  white: "#E2E8F0",
-  brightBlack: "#475569",
-  brightRed: "#FB7185",
-  brightGreen: "#4ADE80",
-  brightYellow: "#FCD34D",
-  brightBlue: "#7DD3FC",
-  brightMagenta: "#C4B5FD",
-  brightCyan: "#5EEAD4",
-  brightWhite: "#F8FAFC",
-};
 
 const SEARCH_OPTS = {
   decorations: {
@@ -50,6 +27,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
   const host = useStore((s) => s.vault.hosts.find((h) => h.id === tab.hostId));
   const closeTab = useStore((s) => s.closeTab);
   const openHost = useStore((s) => s.openHost);
+  const themeId = useStore((s) => s.terminalThemeId);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -64,7 +42,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
       fontSize: 13,
       lineHeight: 1.3,
       cursorBlink: true,
-      theme: THEME,
+      theme: themeById(themeId),
       allowProposedApi: true,
       scrollback: 10000,
     });
@@ -169,6 +147,11 @@ export function TerminalView({ tab }: { tab: Tab }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id]);
+
+  // apply terminal theme changes live
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = themeById(themeId);
+  }, [themeId]);
 
   const findNext = (q = query) => q && searchRef.current?.findNext(q, SEARCH_OPTS);
   const findPrev = (q = query) => q && searchRef.current?.findPrevious(q, SEARCH_OPTS);

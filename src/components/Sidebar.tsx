@@ -41,6 +41,25 @@ export function Sidebar() {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
+  const sidebarWidth = useStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useStore((s) => s.setSidebarWidth);
+
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMove = (ev: PointerEvent) => setSidebarWidth(startWidth + (ev.clientX - startX));
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   return (
     <div className="flex h-full shrink-0 border-r border-line">
@@ -101,7 +120,12 @@ export function Sidebar() {
 
       {/* list panel */}
       {!collapsed && (
-      <div className="flex w-64 flex-col bg-bg">
+      <div className="relative flex flex-col bg-bg" style={{ width: sidebarWidth }}>
+        <div
+          onPointerDown={startResize}
+          title="Drag to resize"
+          className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize transition-colors hover:bg-accent/50"
+        />
         <div className="flex h-12 items-center px-4">
           <h2 className="text-sm font-semibold tracking-tight">{TITLES[sidebarView]}</h2>
         </div>

@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { Copy, FolderTree, Palette, Pencil, Plus, Server, SquarePlus, TerminalSquare, X } from "lucide-react";
+import { useState, type MouseEvent } from "react";
+import { Bot, Copy, FolderTree, Palette, Pencil, Plus, Search, Server, SquarePlus, TerminalSquare, X } from "lucide-react";
 import { useStore } from "../store/useStore";
+import { whichAvailable } from "../lib/api";
 import { TerminalView } from "./TerminalView";
 import { SftpPanel } from "./panels/SftpPanel";
 import { ThemePanel } from "./panels/ThemePanel";
+import { AiCommandPanel } from "./panels/AiCommandPanel";
 
 export function Workspace() {
   const tabs = useStore((s) => s.tabs);
@@ -15,6 +17,11 @@ export function Workspace() {
   const renameTab = useStore((s) => s.renameTab);
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null);
+  const [newConn, setNewConn] = useState<{ x: number; y: number } | null>(null);
+  const [connQuery, setConnQuery] = useState("");
+  const [aiMenu, setAiMenu] = useState<{ x: number; y: number } | null>(null);
+  const [aiInstalled, setAiInstalled] = useState<string[] | null>(null);
+  const aiTools = useStore((s) => s.aiTools);
 
   const startRename = (id: string, current: string) => setEditing({ id, value: current });
   const commitRename = () => {
@@ -32,6 +39,36 @@ export function Workspace() {
   const hosts = useStore((s) => s.vault.hosts);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+
+  const cq = connQuery.toLowerCase();
+  const connHosts = cq
+    ? hosts.filter(
+        (h) =>
+          h.label.toLowerCase().includes(cq) ||
+          h.address.toLowerCase().includes(cq) ||
+          h.username.toLowerCase().includes(cq) ||
+          h.tags.some((t) => t.toLowerCase().includes(cq)),
+      )
+    : hosts;
+
+  const openNewConn = (e: MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setConnQuery("");
+    setNewConn({ x: r.left, y: r.bottom + 4 });
+  };
+  const openAiMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setAiInstalled(null);
+    setAiMenu({ x: r.left, y: r.bottom + 4 });
+    whichAvailable(aiTools.map((t) => t.command))
+      .then(setAiInstalled)
+      .catch(() => setAiInstalled([]));
+  };
+  const launchAi = (toolId: string, command: string, name: string) => {
+    openLocal({ command, title: name, aiTool: toolId });
+    if (rightPanel !== "ai") setRightPanel("ai");
+    setAiMenu(null);
+  };
 
   const statusDot = (s: string) =>
     s === "connected"
@@ -97,11 +134,18 @@ export function Workspace() {
             );
           })}
           <button
-            className="btn-ghost ml-1 shrink-0 p-1.5"
-            onClick={openLocal}
-            title="New local terminal"
+            className={`btn-ghost ml-1 shrink-0 p-1.5 ${newConn ? "bg-surface text-content" : ""}`}
+            onClick={openNewConn}
+            title="New connection"
           >
             <SquarePlus size={16} />
+          </button>
+          <button
+            className={`btn-ghost shrink-0 p-1.5 ${aiMenu ? "bg-surface text-content" : ""}`}
+            onClick={openAiMenu}
+            title="Launch an AI tool"
+          >
+            <Bot size={16} />
           </button>
         </div>
 
@@ -125,6 +169,19 @@ export function Workspace() {
           >
             <FolderTree size={15} />
             SFTP
+          </button>
+        )}
+
+        {activeTab?.aiTool && (
+          <button
+            className={`btn-ghost ml-1 px-2 py-1.5 text-xs ${
+              rightPanel === "ai" ? "bg-surface text-content" : ""
+            }`}
+            onClick={() => setRightPanel("ai")}
+            title="Toggle AI commands"
+          >
+            <Bot size={15} />
+            Commands
           </button>
         )}
       </div>
@@ -155,6 +212,11 @@ export function Workspace() {
         {rightPanel === "themes" && (
           <div className="w-[320px] shrink-0 border-l border-line bg-bg">
             <ThemePanel />
+          </div>
+        )}
+        {rightPanel === "ai" && activeTab?.aiTool && (
+          <div className="w-[320px] shrink-0 border-l border-line bg-bg">
+            <AiCommandPanel tab={activeTab} />
           </div>
         )}
       </div>
@@ -192,6 +254,111 @@ export function Workspace() {
           </div>
         </>
       )}
+
+      {/* new-connection picker: local terminal + searchable hosts */}
+      {newConn && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setNewConn(null)}
+            onContextMenu={(e) => { e.preventDefault(); setNewConn(null); }}
+          />
+          <div
+            className="fixed z-50 flex max-h-[60vh] w-72 flex-col overflow-hidden rounded-xl border border-line-strong bg-bg-raised shadow-2xl animate-fade-in"
+            style={{ left: Math.min(newConn.x, window.innerWidth - 300), top: Math.min(newConn.y, window.innerHeight - 380) }}
+          >
+            <button
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-content transition-colors duration-150 hover:bg-surface-hover"
+              onClick={() => { openLocal(); setNewConn(null); }}
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface text-content-muted">
+                <TerminalSquare size={15} />
+              </span>
+              <span className="font-medium">Local terminal</span>
+            </button>
+            <div className="border-t border-line px-2 py-2">
+              <div className="relative">
+                <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-content-faint" />
+                <input
+                  autoFocus
+                  className="input py-1.5 pl-8 text-xs"
+                  placeholder="Search hosts…"
+                  value={connQuery}
+                  onChange={(e) => setConnQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setNewConn(null); }}
+                />
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+              {connHosts.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-content-faint">No matches.</p>
+              ) : (
+                connHosts.map((h) => (
+                  <button
+                    key={h.id}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors duration-150 hover:bg-surface-hover"
+                    onClick={() => { openHost(h.id); setNewConn(null); }}
+                  >
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold uppercase"
+                      style={{ background: (h.color ?? "#22C55E") + "22", color: h.color ?? "#22C55E" }}
+                    >
+                      {h.label.slice(0, 2)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-content">{h.label}</span>
+                      <span className="block truncate font-mono text-[11px] text-content-faint">
+                        {h.username}@{h.address}
+                      </span>
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* AI tool launcher: opens a tagged local terminal */}
+      {aiMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setAiMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setAiMenu(null); }}
+          />
+          <div
+            className="fixed z-50 w-64 overflow-hidden rounded-xl border border-line-strong bg-bg-raised py-1 shadow-2xl animate-fade-in"
+            style={{ left: Math.min(aiMenu.x, window.innerWidth - 270), top: Math.min(aiMenu.y, window.innerHeight - 80 - aiTools.length * 46) }}
+          >
+            <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-content-faint">
+              AI tools
+            </div>
+            {aiTools.map((t) => {
+              const installed = aiInstalled === null ? null : aiInstalled.includes(t.command);
+              return (
+                <button
+                  key={t.id}
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-content transition-colors duration-150 hover:bg-surface-hover"
+                  onClick={() => launchAi(t.id, t.command, t.name)}
+                >
+                  <Bot size={15} className="shrink-0 text-accent" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{t.name}</span>
+                    <span className="block truncate font-mono text-[10px] text-content-faint">
+                      {t.command}{installed === false ? " · not on PATH" : ""}
+                    </span>
+                  </span>
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${installed ? "bg-emerald-500" : "bg-content-faint/40"}`}
+                    title={installed === null ? "" : installed ? "Installed" : "Not found on PATH"}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -206,7 +373,7 @@ function EmptyState({ hasHosts }: { hasHosts: boolean }) {
       <p className="text-sm">
         {hasHosts ? "Double-click a host to open a session." : "Add a host from the sidebar to begin."}
       </p>
-      <button className="btn-surface mt-1 px-3 py-1.5 text-xs" onClick={openLocal}>
+      <button className="btn-surface mt-1 px-3 py-1.5 text-xs" onClick={() => openLocal()}>
         <TerminalSquare size={14} /> Open local terminal
       </button>
       <p className="font-mono text-xs text-content-faint/70">SSH · SFTP · Port Forwarding</p>

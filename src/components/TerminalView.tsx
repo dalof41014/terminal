@@ -135,6 +135,8 @@ export function TerminalView({ tab }: { tab: Tab }) {
         if (firstData) {
           firstData = false;
           setTabStatus(tab.id, "connected");
+          // Send the startup command (e.g. an AI CLI) once the shell prompt is ready.
+          if (tab.startup) sendInput(tab.startup + "\n").catch(() => {});
         }
         term.write(e.payload);
       });

@@ -53,8 +53,13 @@ export function HostList() {
         {h.label.slice(0, 2)}
       </span>
       <button className="min-w-0 flex-1 text-left" onClick={() => openHost(h.id)} title="Connect">
-        <div className="truncate text-sm font-medium text-content">{h.label}</div>
-        <div className="truncate font-mono text-[11px] text-content-faint">
+        <div className="truncate text-sm font-medium text-content" title={h.label}>
+          {h.label}
+        </div>
+        <div
+          className="truncate font-mono text-[11px] text-content-faint"
+          title={`${h.username}@${h.address}:${h.port}`}
+        >
           {h.username}@{h.address}:{h.port}
         </div>
       </button>
@@ -94,7 +99,7 @@ export function HostList() {
           ) : (
             <Folder size={15} className="shrink-0 text-info" />
           )}
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-content">{group.name}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-content" title={group.name}>{group.name}</span>
           {count > 0 && <span className="chip shrink-0">{count}</span>}
           <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
             <button

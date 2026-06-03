@@ -665,6 +665,38 @@ async fn forward_stop(state: State<'_, AppState>, id: String) -> Result<(), Stri
     map_err(state.ssh.stop_forward(&id).await)
 }
 
+// ---------- AI tools: PATH availability ----------
+
+/// Return the subset of `names` found on `PATH` (i.e. installed). Used by the AI
+/// launcher to show an installed / not-installed indicator. No new dependency —
+/// a tiny inline PATH scan. Detection reflects the env the app launched with.
+#[tauri::command]
+fn which_available(names: Vec<String>) -> Vec<String> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let dirs: Vec<std::path::PathBuf> = std::env::split_paths(&path).collect();
+
+    let found = |name: &str| -> bool {
+        for d in &dirs {
+            if d.join(name).is_file() {
+                return true;
+            }
+            #[cfg(windows)]
+            {
+                let exts = std::env::var("PATHEXT")
+                    .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".to_string());
+                for ext in exts.split(';').filter(|s| !s.is_empty()) {
+                    if d.join(format!("{name}{}", ext.to_lowercase())).is_file() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    };
+
+    names.into_iter().filter(|n| found(n)).collect()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Preserve data from the previous "Terminal" name.
@@ -737,6 +769,7 @@ pub fn run() {
             file_delete,
             forward_start,
             forward_stop,
+            which_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

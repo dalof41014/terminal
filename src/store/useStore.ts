@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { nanoid } from "nanoid";
 import * as api from "../lib/api";
+import { AI_TOOLS, type AiTool } from "../lib/aiTools";
 import {
   emptyVault,
   type Group,
@@ -46,7 +47,7 @@ const ls = {
 };
 
 export type SidebarView = "hosts" | "keys" | "snippets" | "forwards" | "known";
-export type RightPanel = "none" | "sftp" | "snippets" | "forwards" | "themes";
+export type RightPanel = "none" | "sftp" | "snippets" | "forwards" | "themes" | "ai";
 export type MainView = "terminals" | "files" | "hosts";
 
 export interface Tab {
@@ -56,6 +57,10 @@ export interface Tab {
   status: "connecting" | "connected" | "closed" | "error";
   error?: string;
   kind: "ssh" | "local" | "telnet";
+  /** Command auto-sent into the session once it's ready (e.g. an AI CLI). */
+  startup?: string;
+  /** Id of the AI tool this tab runs, if launched from the AI launcher. */
+  aiTool?: string;
 }
 
 interface StoreState {
@@ -66,6 +71,8 @@ interface StoreState {
   sidebarView: SidebarView;
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  sidebarWidth: number;
+  setSidebarWidth: (w: number) => void;
   mainView: MainView;
   setMainView: (v: MainView) => void;
   hostSearch: string;
@@ -97,6 +104,10 @@ interface StoreState {
   setLocalFont: (id: string) => void;
   settingsOpen: boolean;
   setSettingsOpen: (v: boolean) => void;
+  // ai tools
+  aiTools: AiTool[];
+  addAiTool: (name: string, command: string) => void;
+  removeAiTool: (id: string) => void;
   // tabs
   tabs: Tab[];
   activeTabId: string | null;
@@ -113,7 +124,7 @@ interface StoreState {
 
   // tab actions
   openHost: (hostId: string) => void;
-  openLocal: () => void;
+  openLocal: (opts?: { command?: string; title?: string; aiTool?: string }) => void;
   closeTab: (tabId: string) => void;
   clearTabs: () => void;
   renameTab: (tabId: string, title: string) => void;
@@ -156,6 +167,12 @@ export const useStore = create<StoreState>((set, get) => ({
   sidebarView: "hosts",
   sidebarCollapsed: false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  sidebarWidth: Math.min(480, Math.max(200, Number(ls.get("sidebar-width", "256")) || 256)),
+  setSidebarWidth: (w) => {
+    const clamped = Math.min(480, Math.max(200, Math.round(w)));
+    ls.set("sidebar-width", String(clamped));
+    set({ sidebarWidth: clamped });
+  },
   mainView: "terminals",
   // entering File Transfer auto-collapses the host list for a wider view
   setMainView: (v) => set({ mainView: v, sidebarCollapsed: v === "files" }),
@@ -230,6 +247,24 @@ export const useStore = create<StoreState>((set, get) => ({
   },
   settingsOpen: false,
   setSettingsOpen: (v) => set({ settingsOpen: v }),
+  // built-in AI tools (with curated commands) + any user-added custom tools
+  aiTools: [
+    ...AI_TOOLS,
+    ...ls.getJSON<AiTool[]>("ai-tools-custom", []),
+  ],
+  addAiTool: (name, command) =>
+    set((s) => {
+      const tool: AiTool = { id: nanoid(8), name: name || command, command, commands: [] };
+      const custom = [...ls.getJSON<AiTool[]>("ai-tools-custom", []), tool];
+      ls.setJSON("ai-tools-custom", custom);
+      return { aiTools: [...AI_TOOLS, ...custom] };
+    }),
+  removeAiTool: (id) =>
+    set(() => {
+      const custom = ls.getJSON<AiTool[]>("ai-tools-custom", []).filter((t) => t.id !== id);
+      ls.setJSON("ai-tools-custom", custom);
+      return { aiTools: [...AI_TOOLS, ...custom] };
+    }),
   tabs: [],
   activeTabId: null,
 
@@ -280,15 +315,17 @@ export const useStore = create<StoreState>((set, get) => ({
     });
   },
 
-  openLocal: () => {
+  openLocal: (opts) => {
     const id = nanoid(8);
     const n = get().tabs.filter((t) => t.kind === "local").length + 1;
     const tab: Tab = {
       id,
       hostId: "",
-      title: n > 1 ? `Local ${n}` : "Local",
+      title: opts?.title ?? (n > 1 ? `Local ${n}` : "Local"),
       status: "connecting",
       kind: "local",
+      startup: opts?.command,
+      aiTool: opts?.aiTool,
     };
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
   },

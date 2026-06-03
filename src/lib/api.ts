@@ -90,6 +90,10 @@ export const fileMkdir = (hostId: string | null, path: string) =>
 export const fileDelete = (hostId: string | null, path: string, isDir: boolean) =>
   invoke<void>("file_delete", { hostId, path, isDir });
 
+// ---- AI tools ----
+export const whichAvailable = (names: string[]) =>
+  invoke<string[]>("which_available", { names });
+
 // ---- port forwarding ----
 export const forwardStart = (
   id: string,

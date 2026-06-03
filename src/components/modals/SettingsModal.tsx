@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  Bot,
   Cloud,
   CloudUpload,
   CloudDownload,
@@ -10,8 +11,10 @@ import {
   Link2,
   Link2Off,
   Lock,
+  Plus,
   RefreshCw,
   TerminalSquare,
+  Trash2,
   Unlock,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -42,6 +45,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const setNoPassword = useStore((s) => s.setNoPassword);
   const localFontId = useStore((s) => s.localFontId);
   const setLocalFont = useStore((s) => s.setLocalFont);
+  const aiTools = useStore((s) => s.aiTools);
+  const addAiTool = useStore((s) => s.addAiTool);
+  const removeAiTool = useStore((s) => s.removeAiTool);
+  const [aiName, setAiName] = useState("");
+  const [aiCmd, setAiCmd] = useState("");
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -354,6 +362,67 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           Applies to local shell tabs. SSH hosts use the default font (Appearance panel) or their own
           per-host override.
         </p>
+      </section>
+
+      <section className="mt-6 border-t border-line pt-5">
+        <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-content">
+          <Bot size={16} className="text-accent" /> AI tools
+        </h3>
+        <p className="mb-3 text-xs text-content-muted">
+          Launch these from the <Bot size={12} className="inline align-text-bottom" /> button in the tab
+          bar — Tapterm runs the CLI in a local terminal and shows its commands in a side panel. No API
+          keys are stored; each tool signs in through your shell environment.
+        </p>
+        <div className="space-y-1.5">
+          {aiTools.map((t) => (
+            <div
+              key={t.id}
+              className="flex items-center gap-2.5 rounded-lg border border-line-strong px-3 py-2"
+            >
+              <Bot size={15} className="shrink-0 text-accent" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-content">{t.name}</div>
+                <div className="truncate font-mono text-[11px] text-content-faint">{t.command}</div>
+              </div>
+              {t.builtin ? (
+                <span className="chip shrink-0">built-in</span>
+              ) : (
+                <button
+                  className="btn-ghost p-1 hover:text-danger"
+                  title="Remove"
+                  onClick={() => removeAiTool(t.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input
+            className="input py-1.5 text-xs"
+            placeholder="Name (e.g. Aider)"
+            value={aiName}
+            onChange={(e) => setAiName(e.target.value)}
+          />
+          <input
+            className="input py-1.5 font-mono text-xs"
+            placeholder="command (e.g. aider)"
+            value={aiCmd}
+            onChange={(e) => setAiCmd(e.target.value)}
+          />
+          <button
+            className="btn-surface shrink-0 px-3 py-1.5 text-xs"
+            disabled={!aiCmd.trim()}
+            onClick={() => {
+              addAiTool(aiName.trim(), aiCmd.trim());
+              setAiName("");
+              setAiCmd("");
+            }}
+          >
+            <Plus size={13} /> Add
+          </button>
+        </div>
       </section>
 
       <section className="mt-6 border-t border-line pt-5">

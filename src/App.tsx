@@ -99,13 +99,15 @@ export default function App() {
       ) : (
         <div className="flex min-h-0 flex-1">
           <Sidebar />
-          {mainView === "files" ? (
-            <FileManager />
-          ) : mainView === "hosts" ? (
-            <HostsPage />
-          ) : (
+          {/* Workspace stays mounted so terminal sessions survive view switches */}
+          <div
+            className="flex min-h-0 min-w-0 flex-1"
+            style={{ display: mainView === "terminals" ? "flex" : "none" }}
+          >
             <Workspace />
-          )}
+          </div>
+          {mainView === "files" && <FileManager />}
+          {mainView === "hosts" && <HostsPage />}
         </div>
       )}
       <UpdateToast />

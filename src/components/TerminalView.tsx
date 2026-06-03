@@ -158,6 +158,8 @@ export function TerminalView({ tab }: { tab: Tab }) {
     });
 
     const doFit = () => {
+      // skip while hidden (e.g. switched to another view) to avoid 0x0 resizes
+      if (!el.offsetWidth || !el.offsetHeight) return;
       try {
         fit.fit();
         resizeSession(term.cols, term.rows).catch(() => {});

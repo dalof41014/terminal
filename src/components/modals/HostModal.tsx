@@ -35,11 +35,20 @@ export function HostModal({
   const [groupId, setGroupId] = useState(host?.groupId ?? defaultGroupId ?? "");
   const [jumpHostId, setJumpHostId] = useState(host?.jumpHostId ?? "");
   const [font, setFont] = useState(host?.font ?? "");
+  const [protocol, setProtocol] = useState<"ssh" | "telnet">(host?.protocol ?? "ssh");
   const hosts = useStore((s) => s.vault.hosts);
+
+  const changeProtocol = (p: "ssh" | "telnet") => {
+    setProtocol(p);
+    // swap the well-known default port when it's still at the other default
+    if (p === "telnet" && Number(port) === 22) setPort(23);
+    if (p === "ssh" && Number(port) === 23) setPort(22);
+  };
 
   const save = async () => {
     let auth: AuthMethod;
-    if (authKind === "Password") auth = { kind: "Password", value: password };
+    if (protocol === "telnet") auth = { kind: "Agent" };
+    else if (authKind === "Password") auth = { kind: "Password", value: password };
     else if (authKind === "Key") auth = { kind: "Key", value: keyId };
     else auth = { kind: "Agent" };
 
@@ -47,15 +56,16 @@ export function HostModal({
       id: host?.id ?? nanoid(10),
       label: label || address,
       address,
-      port: Number(port) || 22,
+      port: Number(port) || (protocol === "telnet" ? 23 : 22),
       username,
       auth,
       color,
       groupId: groupId || null,
       os: host?.os ?? null,
       tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-      jumpHostId: jumpHostId || null,
+      jumpHostId: protocol === "telnet" ? null : jumpHostId || null,
       font: font || null,
+      protocol,
     };
     try {
       await saveHost(next);
@@ -83,6 +93,24 @@ export function HostModal({
     >
       <Field label="Label">
         <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Production DB" />
+      </Field>
+
+      <Field label="Protocol">
+        <div className="flex gap-1.5">
+          {(["ssh", "telnet"] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => changeProtocol(p)}
+              className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium uppercase transition-colors cursor-pointer ${
+                protocol === p
+                  ? "border-accent bg-accent-soft text-accent"
+                  : "border-line-strong text-content-muted hover:bg-surface-hover"
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
       </Field>
 
       <div className="grid grid-cols-3 gap-3">
@@ -121,18 +149,20 @@ export function HostModal({
         </select>
       </Field>
 
-      <Field label="Jump host (bastion)" hint="Tunnel this connection through another saved host.">
-        <select className="input" value={jumpHostId} onChange={(e) => setJumpHostId(e.target.value)}>
-          <option value="">— Direct connection —</option>
-          {hosts
-            .filter((h) => h.id !== host?.id)
-            .map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.label} ({h.username}@{h.address})
-              </option>
-            ))}
-        </select>
-      </Field>
+      {protocol === "ssh" && (
+        <Field label="Jump host (bastion)" hint="Tunnel this connection through another saved host.">
+          <select className="input" value={jumpHostId} onChange={(e) => setJumpHostId(e.target.value)}>
+            <option value="">— Direct connection —</option>
+            {hosts
+              .filter((h) => h.id !== host?.id)
+              .map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.label} ({h.username}@{h.address})
+                </option>
+              ))}
+          </select>
+        </Field>
+      )}
 
       <Field label="Terminal font" hint="Overrides the default font for this host only.">
         <select className="input" value={font} onChange={(e) => setFont(e.target.value)}>
@@ -145,47 +175,54 @@ export function HostModal({
         </select>
       </Field>
 
-      <Field label="Authentication">
-        <div className="mb-3 flex gap-1.5">
-          {(["Password", "Key", "Agent"] as const).map((k) => (
-            <button
-              key={k}
-              onClick={() => setAuthKind(k)}
-              className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                authKind === k
-                  ? "border-accent bg-accent-soft text-accent"
-                  : "border-line-strong text-content-muted hover:bg-surface-hover"
-              }`}
-            >
-              {k}
-            </button>
-          ))}
-        </div>
-        {authKind === "Password" && (
-          <PasswordInput
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-          />
-        )}
-        {authKind === "Key" && (
-          keys.length ? (
-            <select className="input" value={keyId} onChange={(e) => setKeyId(e.target.value)}>
-              {keys.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <p className="text-xs text-warn">Add an SSH key in the Keychain first.</p>
-          )
-        )}
-        {authKind === "Agent" && (
-          <p className="text-xs text-content-faint">Uses the system SSH agent (if available).</p>
-        )}
-      </Field>
+      {protocol === "telnet" ? (
+        <Field label="Authentication">
+          <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
+            Telnet is unencrypted and logs you in interactively — no key/password is stored.
+          </p>
+        </Field>
+      ) : (
+        <Field label="Authentication">
+          <div className="mb-3 flex gap-1.5">
+            {(["Password", "Key", "Agent"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setAuthKind(k)}
+                className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                  authKind === k
+                    ? "border-accent bg-accent-soft text-accent"
+                    : "border-line-strong text-content-muted hover:bg-surface-hover"
+                }`}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+          {authKind === "Password" && (
+            <PasswordInput
+              className="input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+            />
+          )}
+          {authKind === "Key" &&
+            (keys.length ? (
+              <select className="input" value={keyId} onChange={(e) => setKeyId(e.target.value)}>
+                {keys.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-xs text-warn">Add an SSH key in the Keychain first.</p>
+            ))}
+          {authKind === "Agent" && (
+            <p className="text-xs text-content-faint">Uses the system SSH agent (if available).</p>
+          )}
+        </Field>
+      )}
 
       <Field label="Color">
         <div className="flex gap-2">

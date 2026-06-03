@@ -55,7 +55,7 @@ export interface Tab {
   title: string;
   status: "connecting" | "connected" | "closed" | "error";
   error?: string;
-  kind: "ssh" | "local";
+  kind: "ssh" | "local" | "telnet";
 }
 
 interface StoreState {
@@ -266,7 +266,13 @@ export const useStore = create<StoreState>((set, get) => ({
     const host = get().vault.hosts.find((h) => h.id === hostId);
     if (!host) return;
     const id = nanoid(8);
-    const tab: Tab = { id, hostId, title: host.label, status: "connecting", kind: "ssh" };
+    const tab: Tab = {
+      id,
+      hostId,
+      title: host.label,
+      status: "connecting",
+      kind: host.protocol === "telnet" ? "telnet" : "ssh",
+    };
     set((s) => {
       const recentHostIds = [hostId, ...s.recentHostIds.filter((x) => x !== hostId)].slice(0, 8);
       ls.setJSON("recent-hosts", recentHostIds);

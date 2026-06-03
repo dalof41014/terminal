@@ -54,6 +54,9 @@ pub struct Host {
     /// Optional terminal font id override for this host.
     #[serde(default)]
     pub font: Option<String>,
+    /// Connection protocol: "ssh" (default) or "telnet".
+    #[serde(default)]
+    pub protocol: Option<String>,
 }
 
 fn default_port() -> u16 {

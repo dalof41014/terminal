@@ -2,6 +2,7 @@ mod gdrive;
 mod local;
 mod ssh;
 mod sync;
+mod telnet;
 mod vault;
 
 use sync::GDriveConfig;
@@ -17,6 +18,7 @@ struct AppState {
     vault: Arc<Vault>,
     ssh: SshManager,
     local: local::LocalManager,
+    telnet: telnet::TelnetManager,
 }
 
 fn map_err<T>(r: anyhow::Result<T>) -> Result<T, String> {
@@ -370,6 +372,44 @@ fn local_close(state: State<AppState>, id: String) {
     state.local.close(&id);
 }
 
+// ---------- telnet commands ----------
+
+#[tauri::command]
+async fn telnet_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    host_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let (host, _auth) = map_err(state.vault.resolve_host(&host_id))?;
+    map_err(state.telnet.open(app, id, host.address, host.port, cols, rows).await)
+}
+
+#[tauri::command]
+async fn telnet_send(state: State<'_, AppState>, id: String, data: String) -> Result<(), String> {
+    state.telnet.send(&id, data.into_bytes()).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn telnet_resize(
+    state: State<'_, AppState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    state.telnet.resize(&id, cols, rows).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn telnet_close(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    state.telnet.close(&id).await;
+    Ok(())
+}
+
 // ---------- sftp commands ----------
 
 #[tauri::command]
@@ -648,6 +688,7 @@ pub fn run() {
                 vault: vault.clone(),
                 ssh: SshManager::new(vault),
                 local: local::LocalManager::new(),
+                telnet: telnet::TelnetManager::new(),
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -679,6 +720,10 @@ pub fn run() {
             local_send,
             local_resize,
             local_close,
+            telnet_open,
+            telnet_send,
+            telnet_resize,
+            telnet_close,
             sftp_list,
             sftp_download,
             sftp_upload,

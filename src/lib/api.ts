@@ -47,6 +47,14 @@ export const localResize = (id: string, cols: number, rows: number) =>
   invoke<void>("local_resize", { id, cols, rows });
 export const localClose = (id: string) => invoke<void>("local_close", { id });
 
+// ---- telnet ----
+export const telnetOpen = (id: string, hostId: string, cols: number, rows: number) =>
+  invoke<void>("telnet_open", { id, hostId, cols, rows });
+export const telnetSend = (id: string, data: string) => invoke<void>("telnet_send", { id, data });
+export const telnetResize = (id: string, cols: number, rows: number) =>
+  invoke<void>("telnet_resize", { id, cols, rows });
+export const telnetClose = (id: string) => invoke<void>("telnet_close", { id });
+
 // ---- sftp ----
 export const sftpList = (hostId: string, path: string) =>
   invoke<SftpListing>("sftp_list", { hostId, path });

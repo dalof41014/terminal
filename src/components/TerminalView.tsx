@@ -14,6 +14,10 @@ import {
   sshOpenShell,
   sshResize,
   sshSend,
+  telnetClose,
+  telnetOpen,
+  telnetResize,
+  telnetSend,
 } from "../lib/api";
 import { useStore, type Tab } from "../store/useStore";
 import { themeById } from "../lib/themes";
@@ -42,6 +46,23 @@ export function TerminalView({ tab }: { tab: Tab }) {
   const fontId = useStore((s) => s.terminalFontId);
   const localFontId = useStore((s) => s.localFontId);
   const resolvedFont = tab.kind === "local" ? localFontId : host?.font || fontId;
+
+  const openSession = (c: number, r: number) =>
+    tab.kind === "telnet"
+      ? telnetOpen(tab.id, tab.hostId, c, r)
+      : tab.kind === "local"
+        ? localOpen(tab.id, c, r)
+        : sshOpenShell(tab.id, tab.hostId, c, r);
+  const sendInput = (d: string) =>
+    tab.kind === "telnet" ? telnetSend(tab.id, d) : tab.kind === "local" ? localSend(tab.id, d) : sshSend(tab.id, d);
+  const resizeSession = (c: number, r: number) =>
+    tab.kind === "telnet"
+      ? telnetResize(tab.id, c, r)
+      : tab.kind === "local"
+        ? localResize(tab.id, c, r)
+        : sshResize(tab.id, c, r);
+  const closeSession = () =>
+    tab.kind === "telnet" ? telnetClose(tab.id) : tab.kind === "local" ? localClose(tab.id) : sshClose(tab.id);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -91,7 +112,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
         navigator.clipboard
           .readText()
           .then((t) => {
-            if (t) (tab.kind === "local" ? localSend : sshSend)(tab.id, t).catch(() => {});
+            if (t) sendInput(t).catch(() => {});
           })
           .catch(() => {});
         return false;
@@ -123,9 +144,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
       });
 
       try {
-        await (tab.kind === "local"
-          ? localOpen(tab.id, term.cols, term.rows)
-          : sshOpenShell(tab.id, tab.hostId, term.cols, term.rows));
+        await openSession(term.cols, term.rows);
       } catch (err) {
         if (!disposed) {
           setTabStatus(tab.id, "error", String(err));
@@ -135,15 +154,13 @@ export function TerminalView({ tab }: { tab: Tab }) {
     })();
 
     const onData = term.onData((data) => {
-      (tab.kind === "local" ? localSend : sshSend)(tab.id, data).catch(() => {});
+      sendInput(data).catch(() => {});
     });
 
     const doFit = () => {
       try {
         fit.fit();
-        (tab.kind === "local" ? localResize : sshResize)(tab.id, term.cols, term.rows).catch(
-          () => {},
-        );
+        resizeSession(term.cols, term.rows).catch(() => {});
       } catch {
         /* noop */
       }
@@ -159,7 +176,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
       onData.dispose();
       unlistenData?.();
       unlistenClosed?.();
-      (tab.kind === "local" ? localClose : sshClose)(tab.id).catch(() => {});
+      closeSession().catch(() => {});
       term.dispose();
       termRef.current = null;
       searchRef.current = null;
@@ -179,7 +196,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
     term.options.fontFamily = fontFamilyCss(resolvedFont);
     try {
       fitRef.current?.fit();
-      (tab.kind === "local" ? localResize : sshResize)(tab.id, term.cols, term.rows).catch(() => {});
+      resizeSession(term.cols, term.rows).catch(() => {});
     } catch {
       /* noop */
     }
@@ -234,7 +251,7 @@ export function TerminalView({ tab }: { tab: Tab }) {
               <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => closeTab(tab.id)}>
                 <X size={14} /> Close
               </button>
-              {tab.kind === "ssh" && (
+              {tab.kind !== "local" && (
                 <button className="btn-surface px-3 py-1.5 text-xs" onClick={() => setEditing(true)}>
                   <Pencil size={14} /> Edit host
                 </button>

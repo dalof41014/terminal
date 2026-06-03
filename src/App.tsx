@@ -22,15 +22,15 @@ export default function App() {
       try {
         const s = await syncStatus();
         setGdriveConnected(s.gdriveConnected);
-        setNoPassword(s.noPassword);
         // pull the latest encrypted vault from Drive before unlocking
         if (s.gdriveConnected) {
           await gdrivePull().catch(() => {});
         }
-        // if the vault has no master password, unlock it silently
-        if (s.noPassword) {
-          await vaultAutounlock().catch(() => false);
-        }
+        // auto-unlock no-password vaults (detected from the vault file itself,
+        // so a no-password vault synced from another device works here too)
+        await vaultAutounlock().catch(() => false);
+        // re-read in case auto-unlock flipped the local no-password flag
+        setNoPassword((await syncStatus()).noPassword);
       } catch {
         /* ignore */
       }

@@ -138,6 +138,10 @@ struct Envelope {
     salt: String,  // base64
     nonce: String, // base64
     ct: String,    // base64 ciphertext
+    /// True when encrypted with the built-in key (no user password). Stored in
+    /// plaintext so any device reading a synced vault can auto-unlock it.
+    #[serde(default)]
+    no_password: bool,
 }
 
 // ---------- vault state ----------
@@ -152,6 +156,7 @@ struct VaultInner {
     salt: [u8; 16],
     data: VaultData,
     unlocked: bool,
+    no_password: bool,
 }
 
 impl Vault {
@@ -164,8 +169,30 @@ impl Vault {
                 salt: [0u8; 16],
                 data: VaultData::default(),
                 unlocked: false,
+                no_password: false,
             }),
         }
+    }
+
+    /// Whether the on-disk vault file is a no-password (built-in key) vault.
+    pub fn file_no_password(&self) -> bool {
+        let g = self.inner.lock().unwrap();
+        std::fs::read(&g.path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Envelope>(&b).ok())
+            .map(|e| e.no_password)
+            .unwrap_or(false)
+    }
+
+    /// Mark the current (unlocked) vault as no-password and persist, so the
+    /// marker lands in the file (used to upgrade older no-password vaults).
+    pub fn upgrade_no_password(&self) -> anyhow::Result<()> {
+        let mut g = self.inner.lock().unwrap();
+        if g.unlocked && !g.no_password {
+            g.no_password = true;
+            persist(&g)?;
+        }
+        Ok(())
     }
 
     pub fn exists(&self) -> bool {
@@ -177,7 +204,7 @@ impl Vault {
     }
 
     /// Create a brand new vault protected by `password`.
-    pub fn init(&self, password: &str) -> anyhow::Result<()> {
+    pub fn init(&self, password: &str, no_password: bool) -> anyhow::Result<()> {
         let mut g = self.inner.lock().unwrap();
         let mut salt = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut salt);
@@ -186,10 +213,8 @@ impl Vault {
         g.key = Some(key);
         g.data = VaultData::default();
         g.unlocked = true;
-        let data = g.data.clone();
-        let path = g.path.clone();
-        write_vault(&path, &key, &salt, &data)?;
-        Ok(())
+        g.no_password = no_password;
+        persist(&g)
     }
 
     /// Unlock an existing vault.
@@ -212,6 +237,7 @@ impl Vault {
         g.key = Some(key);
         g.data = data;
         g.unlocked = true;
+        g.no_password = env.no_password;
         Ok(())
     }
 
@@ -224,7 +250,7 @@ impl Vault {
 
     /// Re-encrypt the current (unlocked) data under a new password, keeping all
     /// data. Used to set, change, or remove the master password.
-    pub fn rekey(&self, password: &str) -> anyhow::Result<()> {
+    pub fn rekey(&self, password: &str, no_password: bool) -> anyhow::Result<()> {
         let mut g = self.inner.lock().unwrap();
         ensure_unlocked(&g)?;
         let mut salt = [0u8; 16];
@@ -232,6 +258,7 @@ impl Vault {
         let key = derive_key(password, &salt)?;
         g.salt = salt;
         g.key = Some(key);
+        g.no_password = no_password;
         persist(&g)
     }
 
@@ -397,7 +424,7 @@ fn ensure_unlocked(g: &VaultInner) -> anyhow::Result<()> {
 /// Persist the current in-memory data using the unlocked key/salt.
 fn persist(g: &VaultInner) -> anyhow::Result<()> {
     let key = g.key.ok_or_else(|| anyhow::anyhow!("vault is locked"))?;
-    write_vault(&g.path, &key, &g.salt, &g.data)
+    write_vault(&g.path, &key, &g.salt, &g.data, g.no_password)
 }
 
 fn derive_key(password: &str, salt: &[u8; 16]) -> anyhow::Result<[u8; 32]> {
@@ -414,6 +441,7 @@ fn write_vault(
     key: &[u8; 32],
     salt: &[u8; 16],
     data: &VaultData,
+    no_password: bool,
 ) -> anyhow::Result<()> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| anyhow::anyhow!("{e}"))?;
     let mut nonce = [0u8; 12];
@@ -427,6 +455,7 @@ fn write_vault(
         salt: B64.encode(salt),
         nonce: B64.encode(nonce),
         ct: B64.encode(ct),
+        no_password,
     };
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

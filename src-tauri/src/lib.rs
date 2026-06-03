@@ -46,24 +46,31 @@ const NO_PASSWORD_KEY: &str = "terminal::no-password::v1";
 #[tauri::command]
 fn vault_init(state: State<AppState>, password: String) -> Result<(), String> {
     let _ = sync::set_no_password(false);
-    map_err(state.vault.init(&password))
+    map_err(state.vault.init(&password, false))
 }
 
 #[tauri::command]
 fn vault_init_nopass(state: State<AppState>) -> Result<(), String> {
-    map_err(state.vault.init(NO_PASSWORD_KEY))?;
+    map_err(state.vault.init(NO_PASSWORD_KEY, true))?;
     map_err(sync::set_no_password(true))
 }
 
-/// If the vault was created without a password, unlock it silently. Returns
-/// whether the vault ended up unlocked.
+/// If the vault has no master password, unlock it silently. The no-password
+/// flag is read from the vault file itself, so a no-password vault synced from
+/// another device auto-unlocks here too. Returns whether it ended up unlocked.
 #[tauri::command]
 fn vault_autounlock(state: State<AppState>) -> bool {
     if state.vault.is_unlocked() {
         return true;
     }
-    if sync::load().no_password && state.vault.exists() {
+    let no_pw = state.vault.file_no_password() || sync::load().no_password;
+    if no_pw && state.vault.exists() {
         let _ = state.vault.unlock(NO_PASSWORD_KEY);
+        if state.vault.is_unlocked() {
+            // ensure the marker is written into the file (upgrades older vaults)
+            let _ = state.vault.upgrade_no_password();
+            let _ = sync::set_no_password(true);
+        }
     }
     state.vault.is_unlocked()
 }
@@ -72,7 +79,7 @@ fn vault_autounlock(state: State<AppState>) -> bool {
 /// auto-unlock so the password is required on next launch.
 #[tauri::command]
 fn vault_set_password(state: State<AppState>, password: String) -> Result<(), String> {
-    map_err(state.vault.rekey(&password))?;
+    map_err(state.vault.rekey(&password, false))?;
     map_err(sync::set_no_password(false))
 }
 
@@ -80,7 +87,7 @@ fn vault_set_password(state: State<AppState>, password: String) -> Result<(), St
 /// on future launches.
 #[tauri::command]
 fn vault_remove_password(state: State<AppState>) -> Result<(), String> {
-    map_err(state.vault.rekey(NO_PASSWORD_KEY))?;
+    map_err(state.vault.rekey(NO_PASSWORD_KEY, true))?;
     map_err(sync::set_no_password(true))
 }
 

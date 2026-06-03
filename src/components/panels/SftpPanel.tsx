@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { sftpDownload, sftpList, sftpUpload } from "../../lib/api";
+import { useStore } from "../../store/useStore";
 import type { SftpEntry } from "../../lib/types";
 
 function joinPath(cwd: string, name: string) {
@@ -34,6 +35,7 @@ function humanSize(n: number) {
 }
 
 export function SftpPanel({ hostId }: { hostId: string }) {
+  const setSftpCwd = useStore((s) => s.setSftpCwd);
   const [cwd, setCwd] = useState("");
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,18 +50,20 @@ export function SftpPanel({ hostId }: { hostId: string }) {
         const res = await sftpList(hostId, path);
         setCwd(res.cwd);
         setEntries(res.entries);
+        setSftpCwd(hostId, res.cwd);
       } catch (e) {
         setError(String(e));
       } finally {
         setLoading(false);
       }
     },
-    [hostId],
+    [hostId, setSftpCwd],
   );
 
   useEffect(() => {
-    load("");
-  }, [load]);
+    // restore the last folder browsed on this host
+    load(useStore.getState().sftpCwd[hostId] || "");
+  }, [load, hostId]);
 
   const download = async (e: SftpEntry) => {
     const remote = joinPath(cwd, e.name);

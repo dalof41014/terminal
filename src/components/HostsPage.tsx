@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import {
+  Clock,
   Copy,
   FolderInput,
   FolderPlus,
@@ -109,6 +110,7 @@ export function HostsPage() {
   const deleteHost = useStore((s) => s.deleteHost);
   const deleteHosts = useStore((s) => s.deleteHosts);
   const moveHostsToGroup = useStore((s) => s.moveHostsToGroup);
+  const recentHostIds = useStore((s) => s.recentHostIds);
   const search = useStore((s) => s.hostSearch);
   const setSearch = useStore((s) => s.setHostSearch);
   const activeTag = useStore((s) => s.hostTag);
@@ -142,6 +144,11 @@ export function HostsPage() {
   if (ungrouped.length || dragging)
     sections.push({ key: "__ungrouped", gid: null, name: "Ungrouped", items: ungrouped });
   const ordered = sections.flatMap((s) => s.items);
+
+  const recent = recentHostIds
+    .map((id) => hosts.find((h) => h.id === id))
+    .filter((h): h is Host => !!h)
+    .slice(0, 6);
 
   const handleClick = (e: React.MouseEvent, id: string) => {
     const index = ordered.findIndex((h) => h.id === id);
@@ -258,6 +265,29 @@ export function HostsPage() {
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4" onClick={(e) => e.target === e.currentTarget && setSelected(new Set())}>
+        {recent.length > 0 && !search && !activeTag && (
+          <div className="mb-6">
+            <div className="mb-2 flex items-center gap-2">
+              <Clock size={13} className="text-content-faint" />
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-content-muted">Recent</h3>
+            </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+              {recent.map((h) => (
+                <HostCard
+                  key={"recent-" + h.id}
+                  h={h}
+                  selected={false}
+                  onClick={() => connect(h.id)}
+                  onDragStart={() => {}}
+                  onConnect={() => connect(h.id)}
+                  onEdit={() => setEditingHost(h)}
+                  onDuplicate={() => duplicateHost(h.id)}
+                  onDelete={() => deleteHost(h.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
         {filtered.length === 0 && !dragging ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-content-faint">
             <Server size={32} className="opacity-40" />

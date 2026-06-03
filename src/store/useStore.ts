@@ -12,6 +12,39 @@ import {
   type VaultStatus,
 } from "../lib/types";
 
+// tiny localStorage helpers (persist UI prefs across restarts)
+const ls = {
+  get: (k: string, d = ""): string => {
+    try {
+      return localStorage.getItem(k) ?? d;
+    } catch {
+      return d;
+    }
+  },
+  set: (k: string, v: string) => {
+    try {
+      localStorage.setItem(k, v);
+    } catch {
+      /* ignore */
+    }
+  },
+  getJSON: <T,>(k: string, d: T): T => {
+    try {
+      const v = localStorage.getItem(k);
+      return v ? (JSON.parse(v) as T) : d;
+    } catch {
+      return d;
+    }
+  },
+  setJSON: (k: string, v: unknown) => {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch {
+      /* ignore */
+    }
+  },
+};
+
 export type SidebarView = "hosts" | "keys" | "snippets" | "forwards" | "known";
 export type RightPanel = "none" | "sftp" | "snippets" | "forwards" | "themes";
 export type MainView = "terminals" | "files" | "hosts";
@@ -39,6 +72,15 @@ interface StoreState {
   setHostSearch: (s: string) => void;
   hostTag: string | null;
   setHostTag: (t: string | null) => void;
+  searches: Record<string, string>;
+  sftpCwd: Record<string, string>;
+  setSftpCwd: (hostId: string, cwd: string) => void;
+  fileLeftEndpoint: string;
+  fileLeftCwd: string;
+  fileRightEndpoint: string;
+  fileRightCwd: string;
+  setFilePane: (side: "left" | "right", endpoint: string, cwd: string) => void;
+  recentHostIds: string[];
   rightPanel: RightPanel;
   search: string;
   activeForwards: Set<string>;
@@ -117,10 +159,37 @@ export const useStore = create<StoreState>((set, get) => ({
   mainView: "terminals",
   // entering File Transfer auto-collapses the host list for a wider view
   setMainView: (v) => set({ mainView: v, sidebarCollapsed: v === "files" }),
-  hostSearch: "",
-  setHostSearch: (s) => set({ hostSearch: s }),
-  hostTag: null,
-  setHostTag: (t) => set({ hostTag: t }),
+  hostSearch: ls.get("host-search"),
+  setHostSearch: (s) => {
+    ls.set("host-search", s);
+    set({ hostSearch: s });
+  },
+  hostTag: ls.get("host-tag") || null,
+  setHostTag: (t) => {
+    ls.set("host-tag", t ?? "");
+    set({ hostTag: t });
+  },
+  sftpCwd: ls.getJSON<Record<string, string>>("sftp-cwd", {}),
+  setSftpCwd: (hostId, cwd) =>
+    set((s) => {
+      const next = { ...s.sftpCwd, [hostId]: cwd };
+      ls.setJSON("sftp-cwd", next);
+      return { sftpCwd: next };
+    }),
+  fileLeftEndpoint: ls.get("file-left-ep", "local"),
+  fileLeftCwd: ls.get("file-left-cwd"),
+  fileRightEndpoint: ls.get("file-right-ep", "local"),
+  fileRightCwd: ls.get("file-right-cwd"),
+  setFilePane: (side, endpoint, cwd) => {
+    ls.set(`file-${side}-ep`, endpoint);
+    ls.set(`file-${side}-cwd`, cwd);
+    set(
+      side === "left"
+        ? { fileLeftEndpoint: endpoint, fileLeftCwd: cwd }
+        : { fileRightEndpoint: endpoint, fileRightCwd: cwd },
+    );
+  },
+  recentHostIds: ls.getJSON<string[]>("recent-hosts", []),
   rightPanel: "none",
   search: "",
   activeForwards: new Set(),
@@ -183,16 +252,26 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  setSidebarView: (v) => set({ sidebarView: v }),
+  setSidebarView: (v) =>
+    set((s) => {
+      const searches = { ...s.searches, [s.sidebarView]: s.search };
+      return { sidebarView: v, search: searches[v] ?? "", searches };
+    }),
   setRightPanel: (p) => set((s) => ({ rightPanel: s.rightPanel === p ? "none" : p })),
-  setSearch: (s) => set({ search: s }),
+  searches: {},
+  setSearch: (s) =>
+    set((st) => ({ search: s, searches: { ...st.searches, [st.sidebarView]: s } })),
 
   openHost: (hostId) => {
     const host = get().vault.hosts.find((h) => h.id === hostId);
     if (!host) return;
     const id = nanoid(8);
     const tab: Tab = { id, hostId, title: host.label, status: "connecting", kind: "ssh" };
-    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: id }));
+    set((s) => {
+      const recentHostIds = [hostId, ...s.recentHostIds.filter((x) => x !== hostId)].slice(0, 8);
+      ls.setJSON("recent-hosts", recentHostIds);
+      return { tabs: [...s.tabs, tab], activeTabId: id, recentHostIds };
+    });
   },
 
   openLocal: () => {

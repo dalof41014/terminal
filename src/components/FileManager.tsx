@@ -92,15 +92,21 @@ interface PaneState {
   load: (path: string) => Promise<void>;
 }
 
-function usePane(): PaneState {
-  const [endpoint, setEndpoint] = useState("local");
-  const [cwd, setCwd] = useState("");
+function usePane(side: "left" | "right"): PaneState {
+  const setFilePane = useStore((s) => s.setFilePane);
+  const initial = useStore.getState();
+  const initEndpoint = side === "left" ? initial.fileLeftEndpoint : initial.fileRightEndpoint;
+  const initCwd = side === "left" ? initial.fileLeftCwd : initial.fileRightCwd;
+
+  const [endpoint, setEndpoint] = useState(initEndpoint || "local");
+  const [cwd, setCwd] = useState(initCwd);
   const [raw, setRaw] = useState<SftpEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hideHidden, setHideHidden] = useState(false);
   const lastIdx = useRef(-1);
+  const firstLoad = useRef(true);
 
   const entries = hideHidden ? raw.filter((e) => !e.name.startsWith(".")) : raw;
 
@@ -113,17 +119,20 @@ function usePane(): PaneState {
         const res = endpoint === "local" ? await localList(path) : await sftpList(endpoint, path);
         setCwd(res.cwd);
         setRaw(res.entries);
+        setFilePane(side, endpoint, res.cwd);
       } catch (e) {
         setError(String(e));
       } finally {
         setLoading(false);
       }
     },
-    [endpoint],
+    [endpoint, side, setFilePane],
   );
 
   useEffect(() => {
-    load("");
+    // restore the saved folder on first mount; reset to home when the endpoint changes
+    load(firstLoad.current ? initCwd || "" : "");
+    firstLoad.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpoint]);
 
@@ -339,8 +348,8 @@ interface Prog {
 
 export function FileManager() {
   const hosts = useStore((s) => s.vault.hosts);
-  const left = usePane();
-  const right = usePane();
+  const left = usePane("left");
+  const right = usePane("right");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<Side | null>(null);

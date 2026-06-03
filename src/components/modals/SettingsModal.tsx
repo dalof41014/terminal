@@ -36,6 +36,7 @@ import {
   vaultRemovePassword,
   vaultSetPassword,
 } from "../../lib/api";
+import { AI_ENABLED } from "../../lib/aiTools";
 import { useStore } from "../../store/useStore";
 import type { SyncStatus } from "../../lib/types";
 
@@ -364,6 +365,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </p>
       </section>
 
+      {AI_ENABLED && (
       <section className="mt-6 border-t border-line pt-5">
         <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-content">
           <Bot size={16} className="text-accent" /> AI tools
@@ -424,6 +426,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </section>
+      )}
 
       <section className="mt-6 border-t border-line pt-5">
         <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-content">

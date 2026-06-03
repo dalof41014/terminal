@@ -15,6 +15,12 @@ export interface AiCommand {
   hint?: string;
 }
 
+/**
+ * Master switch for the AI tools feature (launcher button, command panel,
+ * Settings section). Set to `true` to re-enable everything.
+ */
+export const AI_ENABLED: boolean = false;
+
 export interface AiTool {
   id: string;
   /** Display name. */

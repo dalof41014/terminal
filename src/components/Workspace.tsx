@@ -3,6 +3,7 @@ import { Bot, Check, Copy, FolderOpen, FolderTree, Palette, Pencil, Plus, Search
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useStore } from "../store/useStore";
 import { whichAvailable } from "../lib/api";
+import { AI_ENABLED } from "../lib/aiTools";
 import { TerminalView } from "./TerminalView";
 import { SftpPanel } from "./panels/SftpPanel";
 import { ThemePanel } from "./panels/ThemePanel";
@@ -189,13 +190,15 @@ export function Workspace() {
           >
             <SquarePlus size={16} />
           </button>
-          <button
-            className={`btn-ghost shrink-0 p-1.5 ${aiMenu ? "bg-surface text-content" : ""}`}
-            onClick={openAiMenu}
-            title="Launch an AI tool"
-          >
-            <Bot size={16} />
-          </button>
+          {AI_ENABLED && (
+            <button
+              className={`btn-ghost shrink-0 p-1.5 ${aiMenu ? "bg-surface text-content" : ""}`}
+              onClick={openAiMenu}
+              title="Launch an AI tool"
+            >
+              <Bot size={16} />
+            </button>
+          )}
         </div>
 
         <button
@@ -221,7 +224,7 @@ export function Workspace() {
           </button>
         )}
 
-        {activeTab?.aiTool && (
+        {AI_ENABLED && activeTab?.aiTool && (
           <button
             className={`btn-ghost ml-1 px-2 py-1.5 text-xs ${
               rightPanel === "ai" ? "bg-surface text-content" : ""
@@ -263,7 +266,7 @@ export function Workspace() {
             <ThemePanel />
           </div>
         )}
-        {rightPanel === "ai" && activeTab?.aiTool && (
+        {AI_ENABLED && rightPanel === "ai" && activeTab?.aiTool && (
           <div className="w-[320px] shrink-0 border-l border-line bg-bg">
             <AiCommandPanel tab={activeTab} />
           </div>
@@ -369,7 +372,7 @@ export function Workspace() {
       )}
 
       {/* AI tool launcher: opens a tagged local OR remote (ssh) session */}
-      {aiMenu && (
+      {AI_ENABLED && aiMenu && (
         <>
           <div
             className="fixed inset-0 z-40"

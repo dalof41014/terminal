@@ -872,6 +872,7 @@ async fn enumerate(
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SftpEntry {
     pub name: String,
     pub is_dir: bool,

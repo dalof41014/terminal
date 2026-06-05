@@ -205,6 +205,11 @@ function Pane({
   onContext: (side: Side, entry: SftpEntry | null, x: number, y: number) => void;
 }) {
   const selCount = pane.selected.size;
+  // editable address bar — type or paste a path and press Enter to jump there
+  const [pathInput, setPathInput] = useState(pane.cwd);
+  useEffect(() => {
+    setPathInput(pane.cwd);
+  }, [pane.cwd]);
   return (
     <div
       data-side={side}
@@ -252,15 +257,33 @@ function Pane({
         </button>
       </div>
 
-      <div className="flex items-center gap-1.5 border-b border-line px-3 py-1.5">
-        <button className="btn-ghost p-1" title="Up" onClick={() => pane.load(parentPath(pane.cwd))}>
+      <form
+        className="flex items-center gap-1.5 border-b border-line px-3 py-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const p = pathInput.trim();
+          if (p) pane.load(p);
+        }}
+      >
+        <button type="button" className="btn-ghost p-1" title="Up" onClick={() => pane.load(parentPath(pane.cwd))}>
           <ArrowUp size={14} />
         </button>
-        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-content-muted" dir="rtl">
-          {pane.cwd || "…"}
-        </code>
+        <input
+          className="min-w-0 flex-1 rounded bg-transparent px-1.5 py-0.5 font-mono text-[11px] text-content-muted outline-none placeholder:text-content-faint focus:bg-bg-inset focus:text-content focus:ring-1 focus:ring-accent"
+          value={pathInput}
+          spellCheck={false}
+          placeholder="Type or paste a path, then Enter…"
+          onChange={(e) => setPathInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setPathInput(pane.cwd);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          onBlur={() => setPathInput(pane.cwd)}
+        />
         {selCount > 0 && <span className="chip shrink-0">{selCount} selected</span>}
-      </div>
+      </form>
 
       {pane.error && (
         <div className="m-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">

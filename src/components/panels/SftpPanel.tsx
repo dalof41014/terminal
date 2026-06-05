@@ -37,6 +37,7 @@ function humanSize(n: number) {
 export function SftpPanel({ hostId }: { hostId: string }) {
   const setSftpCwd = useStore((s) => s.setSftpCwd);
   const [cwd, setCwd] = useState("");
+  const [pathInput, setPathInput] = useState("");
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export function SftpPanel({ hostId }: { hostId: string }) {
       try {
         const res = await sftpList(hostId, path);
         setCwd(res.cwd);
+        setPathInput(res.cwd);
         setEntries(res.entries);
         setSftpCwd(hostId, res.cwd);
       } catch (e) {
@@ -108,8 +110,16 @@ export function SftpPanel({ hostId }: { hostId: string }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 border-b border-line px-3 py-2">
+      <form
+        className="flex items-center gap-1.5 border-b border-line px-3 py-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const p = pathInput.trim();
+          if (p) load(p);
+        }}
+      >
         <button
+          type="button"
           className="btn-ghost p-1"
           title="Up"
           onClick={() => load(parentPath(cwd))}
@@ -117,10 +127,21 @@ export function SftpPanel({ hostId }: { hostId: string }) {
         >
           <ArrowUp size={14} />
         </button>
-        <code className="truncate font-mono text-[11px] text-content-muted" dir="rtl">
-          {cwd || "…"}
-        </code>
-      </div>
+        <input
+          className="min-w-0 flex-1 rounded bg-transparent px-1.5 py-0.5 font-mono text-[11px] text-content-muted outline-none placeholder:text-content-faint focus:bg-bg-inset focus:text-content focus:ring-1 focus:ring-accent"
+          value={pathInput}
+          spellCheck={false}
+          placeholder="Type or paste a path, then Enter…"
+          onChange={(e) => setPathInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setPathInput(cwd);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          onBlur={() => setPathInput(cwd)}
+        />
+      </form>
 
       {error && (
         <div className="m-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
